@@ -160,6 +160,7 @@ Derive Checker for (balanced n t).
    the proposition `Balanced n t` for arbitrary parameters n and t. *)
 
 Check DecOptbalanced.
+Print DecOptbalanced.
 (* ==>
   DecOptbalanced
      : forall (n_ : nat) (t_ : Tree ?A), DecOpt (balanced n_ t_)

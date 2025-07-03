@@ -82,6 +82,7 @@ Derive EnumSizedSuchThat for (fun t => typing G e t).
 
 (* Check whether a variable has a given type in an env. *)
 Derive DecOpt for (typing G e t).
+Print DecOpttyping.
 
 (* Small step CBV semantics *)
 Inductive value : term -> Prop :=

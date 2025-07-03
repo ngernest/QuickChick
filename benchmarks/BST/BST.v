@@ -23,6 +23,7 @@ Derive ArbitrarySizedSuchThat for (fun x => le y x).
 QuickChickWeights [(between_n, 1); (between_S, 7)].
 Derive ArbitrarySizedSuchThat for (fun x => between lo x hi).
 Derive DecOpt for (between lo x hi).
+Print DecOptbetween.
 
 Inductive bst : nat -> nat -> Tree -> Prop :=
 | bst_leaf : forall lo hi, bst lo hi Leaf
@@ -33,6 +34,7 @@ Inductive bst : nat -> nat -> Tree -> Prop :=
 
 Derive ArbitrarySizedSuchThat for (fun t => bst lo hi t).
 Derive DecOpt for (bst lo hi t).
+Print DecOptbst. 
 
 Fixpoint gen_bst (s : nat) (lo hi : nat) : G Tree :=
   match s with

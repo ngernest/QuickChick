@@ -43,6 +43,18 @@ Derive EnumSizedSuchThat for (fun t => bind G x t).
 (* Check whether a variable has a given type in an env. *)
 Derive DecOpt for (bind G e t).
 
+Inductive NatChain (A B : nat) : Prop :=
+| ChainExists : forall (X Y Z : nat),
+    A = X ->
+    X = Y ->
+    Y = Z ->
+    Z = B ->
+    NatChain A B.
+
+Derive DecOpt for (NatChain A B).
+Print DecOptNatChain.
+
+
 (* Typing *)
 
 Inductive typing (G : env) : term -> type -> Prop :=
