@@ -75,6 +75,9 @@ Inductive typing (G : env) : term -> type -> Prop :=
       typing G e1 (Arrow t1 t2) ->
       typing G (App (Abs N e1) e2) t2.
 
+Derive DecOpt for (typing G e t).      
+Print DecOpttyping.
+
 Fixpoint typeOf G e : option type :=
   match e with
   | Id x => nth_error G x
