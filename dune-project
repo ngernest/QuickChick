@@ -3,6 +3,7 @@
 (using menhir 2.0)
 (name coq-quickchick)
 (version dev)
+(warnings (deprecated_coq_lang_lt_08 disabled))
 
 (generate_opam_files true)
 
