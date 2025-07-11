@@ -98,7 +98,6 @@ Inductive bst : nat -> nat -> tree1 -> Prop :=
 Derive DecOpt for (le min max).
 Derive EnumSizedSuchThat for (fun m => le n m).
 
-Derive EnumSizedSuchThat for (fun t => bst min max t).
 
 Derive ArbitrarySizedSuchThat for (fun m => le n m).
 Derive ArbitrarySizedSuchThat for (fun t => bst min max t).

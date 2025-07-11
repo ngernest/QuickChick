@@ -34,7 +34,10 @@ Inductive bst : nat -> nat -> Tree -> Prop :=
 
 Derive ArbitrarySizedSuchThat for (fun t => bst lo hi t).
 Derive DecOpt for (bst lo hi t).
-Print DecOptbst. 
+
+Derive EnumSizedSuchThat for (fun t => bst lo hi t).
+Print EnumSizedSuchThatbst.
+
 
 Fixpoint gen_bst (s : nat) (lo hi : nat) : G Tree :=
   match s with

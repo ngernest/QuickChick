@@ -841,26 +841,6 @@ let c_if cond c1 c2 : constr_expr =
 let c_let v c1 c2 : constr_expr =
   CAst.make @@ CLetIn (CAst.make @@ Names.Name v, c1, None, c2)
 
-(*  (a,b,c)  => pair (pair (pair a b) c) d  *)
-(* 
-
-let c_match discr ?catchAll:(body=None) ?params:(holes=0) (branches : (constructor * string list * (var list -> coq_expr)) list) : constr_expr =
-  CAst.make @@ CCases (RegularStyle,
-          None (* return *), 
-          [(discr, None, None)], (* single discriminee, no as/in *)
-          (List.map (fun (c, cs, bf) -> 
-                      let cvs : Id.t list = List.map fresh_name cs in
-                      CAst.make ([[CAst.make @@ CPatCstr (c,
-                                      None,
-                                      List.init holes (fun _ -> CAst.make @@ CPatAtom None) @
-                                      List.map (fun s -> CAst.make @@ CPatAtom (Some (qualid_of_ident s))) cvs (* Constructor applied to patterns *)
-                                    )
-                           ]],
-                       bf cvs)
-                   ) branches) @ match body with
-                                 | None -> []
-                                 | Some c' -> [CAst.make ([[CAst.make @@ CPatAtom None]], c')]) *)
-
 let c_bindGen gen k = c_app (cInject "QuickChick.Generators.bindGen") [c_hole; c_hole; gen; k]
 
 let c_bindOpt prod k = c_app (cInject "QuickChick.Producer.bindOpt") [c_hole; c_hole; c_hole; c_hole; prod; k]
@@ -1038,15 +1018,6 @@ let rec mexp_to_string (me : mexp) : string =
     (match ty with 
     | None -> ""
     | Some ty -> Printf.sprintf " : %s" (mexp_to_string ty)))) vs)) (mexp_to_string m)
-  (* | MFix (f, vs, m, ds) -> Printf.sprintf "fix %s %s = %s in %s" (var_to_string f) (String.concat " " (List.map (fun (v,ty) -> Printf.sprintf "%s%s" (pat_to_string v) (
-    (match ty with 
-    | None -> ""
-    | Some ty -> Printf.sprintf " : %s" (mexp_to_string ty))) vs)) (mexp_to_string m) (derive_sort_to_string ds)
-  | MMutFix (funs, v) -> 
-    let fun_to_string (f, vs, m, ds) is_first = Printf.sprintf "%s %s %s = %s in %s" (if is_first then "fix" else "and") (var_to_string f) (String.concat " " (List.map (fun (v,ty) -> Printf.sprintf "%s%s" (pat_to_string v) (
-      (match ty with 
-      | None -> ""
-      | Some ty -> Printf.sprintf " : %s" (mexp_to_string ty))) vs)) (mexp_to_string m) (derive_sort_to_string ds) in *)
 
 
 
@@ -1059,20 +1030,6 @@ let prod_sort_to_monad_opt_sort (ps : producer_sort) : monad_sort =
   match ps with
   | PS_E -> MEOpt
   | PS_G -> MGOpt
-(* 
-let rename_rocq_type_vars (rt : rocq_type) (v : var) (locations : int list list) : rocq_type =
-  let other_v = fresh_name (var_to_string v) in
-  let rec aux loc rt = 
-    match rt with
-    | DTyParam p -> DTyParam p
-    | DTyCtr (c, ds) -> DTyCtr (c, List.mapi (fun i d -> aux (loc @ [i]) d) ds)
-    | DCtr (c, ds) -> DCtr (c, List.mapi (fun i d -> aux (loc @ [i]) d) ds)
-    | DTyVar x -> if x = v then DTyVar (if List.mem loc locations then v else other_v) else DTyVar x
-    | DApp (d, ds) -> DApp (d, List.mapi (fun i d -> aux (loc @ [i]) d) ds)
-    | DNot d -> DNot (aux (loc @ [0]) d)
-    | DHole -> DHole
-  in
-  aux [] rt *)
 
 let unconstrained_producer (ps : producer_sort) ty =
   match ps with
@@ -1190,9 +1147,6 @@ let schedule_to_mexp ((steps, s_sort) : schedule) (mfuel : mexp) (def_fuel : mex
   in
   List.fold_right (fun schd acc -> schedule_step_to_mexp schd mfuel def_fuel acc) steps finally
 
-(* let type_of_schedule (ischd_name, inps, nonrec_schds, rec_schds : inductive_schedule) (ds : derive_sort) (is_constrained : bool) : mexp = *)
-
-
 
 let fuel_zero = MConst "Coq.Init.Datatypes.O"
 let fuel_size = MId (var_of_string "size")
@@ -1264,7 +1218,7 @@ let schedule_step_dependence (s : schedule_step) : (rocq_constr * int list * der
     let output_idxs = filter_mapi (fun i arg_vars -> if List.exists (fun v -> List.mem v arg_vars) output_vars then Some i else None) arg_vars in
     Some (DTyCtr (ind, args), output_idxs, (match ps with PS_E -> D_Enum | PS_G -> D_Gen), true)
   | S_Check (SrcNonrec (DTyCtr (c, [DTyParam _;_;_])), pol) when c = constructor_of_string "Coq.Init.Datatypes.eq" -> 
-    None (*Parameters handled elsewhere*)
+    None (* Parameters handled elsewhere *)
   | S_Check (SrcNonrec t, pol) -> Some (t, [], D_Check, true)
   | S_Match _ | S_UC _ 
   | S_ST    _ | S_Check _ 
@@ -1286,8 +1240,6 @@ let schedule_with_dependents (s : schedule) : (schedule_step * (rocq_constr * in
   let step_depends = List.map (fun step -> (step, schedule_step_dependence step)) steps in
 
   step_depends, final_depends
-
-(* let parameter_dependents_from_ind_sched =  *)
 
 let inductive_schedule_dependents (is : inductive_schedule) : (rocq_constr * int list * derive_sort * bool) list =
   let (_, _, param_deps, base_scheds, rec_scheds) = is in
@@ -1390,20 +1342,9 @@ let inductive_schedule_with_dependencies_to_mexp unconstrained_inds (ind_schds :
       | D_Gen, true | D_Enum, true | D_Check, _ | D_Thm, true -> MOutOfFuel
       | _ -> first) in
     if ds = D_Thm && ind_schd_name = "theorem" then begin
-      (* let thm_mexp = 
-        (match base_scheds with
-        | [(s, inp_pats)] -> schedule_to_mexp s fuel_sizem fuel_init_size
-        | _ -> failwith "Expected a single base schedule for the theorem") in
-      let add_fuel_let = MLet (var_of_string "size", MId (var_of_string "sizem"), thm_mexp) in
-      (var_of_string "theorem", [(var_of_string "sizem"), (MConst "Coq.Init.Datatypes.nat")], prelude (MFun ([], out_of_fuel)) add_fuel_let, D_Thm)
-      end *)
       failwith "Theorems should not be in a mutual fixpoint ever"
     end
     else 
-    (* let mexp = 
-      (match inductive_schedule_to_mexp is ds is_constrained with
-      | MLet (fun_name, fixp, MFun (_,body)) -> MLet (var_of_string "size", MCtr (constructor_of_string "Coq.Init.Datatypes.S", [MId (var_of_string "sizem")]), MLet (fun_name, fixp, body))
-      | m -> failwith "Expected a let binding") in *)
     let mexp = 
       (match inductive_schedule_to_mexp is ds is_constrained with
       | MLet (fun_name, fixp, MFun (_,_)) -> 
@@ -1466,25 +1407,6 @@ let turn_def_calls_into_mutrec_calls (ind_schd : inductive_schedule) names : ind
   name, inputs, [], new_base_scheds, new_rec_scheds @ new_mutrec_scheds
 
 
-(* let inductive_schedules_to_mexp (components : (inductive_schedule * derive_sort * is_constrained) list list) (output_ind_schd_name : string) : mexp =
-  let handle_component comp k =
-    msg_debug (str "Handling component" ++ fnl());
-    msg_debug (int (List.length comp) ++ fnl());
-    match comp with
-    | [(is, ds, is_constrained)] -> 
-      let name = match is with (n,_,_,_) -> n in
-      let body = inductive_schedule_to_mexp is ds is_constrained in
-      MLet (var_of_string name, body, k)
-    | _ -> 
-      let names = List.map (fun (is,_,_) -> match is with (n,_,_,_) -> n) comp in
-      let comp = List.map (fun (is, ds, is_constrained) -> turn_def_calls_into_mutrec_calls is names, ds, is_constrained) comp in
-      let (name, mut_body, res) = match inductive_schedule_with_dependencies_to_mexp [] comp "placeholder" with 
-        | MLet (name, mut_body, res) -> name, mut_body, res
-        | _ -> failwith "Expected a mut_body in a let" in 
-      let update_name n = function MMutFix (funs, _) -> MMutFix (funs, var_of_string n) | _ -> failwith "Expected a MMutFix" in
-      List.fold_right (fun name acc -> MLet (var_of_string name, update_name name mut_body, acc)) names k in
-  List.fold_right handle_component components (MId (var_of_string output_ind_schd_name)) *)
-
 let inductive_schedules_to_def_mexps (components : (inductive_schedule * derive_sort * is_constrained) list list) (output_ind_schd_name : string) : (var * mexp * derive_sort) list list =
   let handle_component comp =
     msg_debug (str "Handling component" ++ fnl());
@@ -1525,10 +1447,6 @@ let inductive_schedule_with_dependencies_to_constr_expr unconstrained_inds (ind_
 let inductive_schedule_to_constr_expr (is : inductive_schedule) (ds : derive_sort) (is_constrained : bool) : constr_expr =
   mexp_to_constr_expr (inductive_schedule_to_mexp is ds is_constrained) ds
 
-(* let inductive_schedules_to_constr_expr (components : (inductive_schedule * derive_sort * is_constrained) list list) (output_ind_schd_name : string) : constr_expr =
-  let mexp = inductive_schedules_to_mexp components output_ind_schd_name in
-  (* msg_debug (str "Inductive schedules mexp: " ++ str (mexp_to_string mexp) ++ fnl()); *)
-  mexp_to_constr_expr mexp D_Thm *)
 
 type parsed_classes = {gen : rocq_constr list; 
                         enum : rocq_constr list;
@@ -1695,45 +1613,6 @@ let find_typeclass_bindings ctr =
     parsed
     in
 
-  (* let handle_full_hint b hint =
-    msg_debug (str "Processing... (" ++ str typeclass_name ++ str ")"  ++ Hints.FullHint.print env evd hint ++ fnl ());
-    begin match Hints.FullHint.repr hint with
-    | Hints.Res_pf h ->
-      let typ = type_of_hint h in
-      let env = Global.env () in
-      let evd = Evd.from_env env in
-      msg_debug (str "Type: " ++ Constr.debug_print typ ++ fnl ());
-      msg_debug (str "Type2: " ++ Ppconstr.pr_constr_expr env evd (Constrextern.extern_constr env evd (EConstr.of_constr typ)) ++ fnl ());
-      (match parse_dependent_type typ with
-      | Some rocq -> 
-        let rocq_str = rocq_constr_to_string rocq in
-        msg_debug (str "ResPF: " ++ str rocq_str ++ fnl ());
-        
-        [rocq] 
-      | None ->
-        msg_debug (str "ResPF: " ++ str "Failed to parse" ++ fnl ());
-        []
-      )
-    | Hints.Give_exact h ->
-      let typ = type_of_hint h in
-      let env = Global.env () in
-      let evd = Evd.from_env env in
-      msg_debug (str "Type: " ++ Constr.debug_print typ ++ fnl ());
-      msg_debug (str "Type2: " ++ Ppconstr.pr_constr_expr env evd (Constrextern.extern_constr env evd (EConstr.of_constr typ)) ++ fnl ());
-      (match parse_dependent_type typ with
-      | Some rocq -> 
-        let rocq_str = rocq_constr_to_string rocq in
-        msg_debug (str "GiveExact: " ++ str rocq_str ++ fnl ());
-        
-        [rocq] 
-      | None ->
-        msg_debug (str "GiveExact: " ++ str "Failed to parse" ++ fnl ());
-       [])
-    | _ ->
-       msg_debug (str "..." ++ fnl ()); []
-
-    end
-  in  *)
   let quickchick_prefix_check = function
     | "QuickChick.DependentClasses.GenSizedSuchThat"
     | "QuickChick.DependentClasses.EnumSizedSuchThat" 
@@ -1758,15 +1637,7 @@ let find_typeclass_bindings ctr =
       (* List.iter (fun hint -> Feedback.msg_notice (str "Not QuickChick: " ++ Hints.FullHint.print env evd hint ++ fnl ())) hints; *)
       parsed
     end
-      (* begin match go with
-      | Some (Names.GlobRef.IndRef i) when prod_check i ->
-         msg_debug (str "Found a producer hint" ++ str (Names.MutInd.to_string (fst i)) ++ fnl ());
-         List.fold_left (fun acc hint -> handle_hint true hint @ acc) acc hints
-      | Some (Names.GlobRef.IndRef i) when dec_check i ->
-         (* eq hack          if Names.Id.to_string (qualid_basename ctr) = "eq" then result := [[false; false; false]]
-         else *) List.fold_left (fun acc hint -> handle_hint false hint @ acc) acc hints
-      | _ -> acc
-      end *)
+      
     ) db init_parsed
     in 
     print_parsed_classes parsed_final;
@@ -2251,101 +2122,12 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
   schedules_sorted_length
 
 
-(* typing g e t -> step e e' -> typing g e' t *)
-
-(* (fun '(e,t') -> typing (x :: xs) (Abs t e) (Arrow t t'))
-
-[in : x xs t] [out : e, t']*)
-
-(* typing (x :: xs) (Abs t e) (Arrow t t'), g -> x :: xs; e' -> Abs t e;    
-*)
-(* Need to use unify from UnifyQC to instantiate the initial maps! *)
-(* let specialize_constructor relation_instance conclusion fixed =
-
-
-let specialize_constructor relation_instance conclusion fixed : rocq_constr * (var * rocq_constr list) list =
-  match relation_instance, conclusion with
-  | DTyCtr (ctr, args), DTyCtr (ctr', args') when ty_ctr_eq ctr ctr' -> 
-    let rec aux arg arg' (vm : pat_map) : rocq_constr * pat_map = 
-      match arg, arg' with
-      | DTyCtr (c, args), DTyCtr (c', args') when ty_ctr_eq c c' ->
-        let args, vm' = List.fold_left2 (fun (args, vm) arg arg' -> 
-          let arg, vm' = aux arg arg' vm in
-          arg :: args, vm') ([], vm) args args' in
-        DTyCtr (c, List.rev args), vm'
-      | DTyCtr (c, args), DTyVar v ->  *)
-
-
-(* Given a type and a *)
 
 
 let rocq_constr_tuple_of_list xs = tuple_of_list (fun x y -> DCtr (constructor_of_string "Coq.Init.Datatypes.pair", [DHole; DHole; x; y])) xs (Some (DTyCtr (ty_ctr_of_string "Coq.Init.Datatypes.tt",[])))
 
 
-(* let finalize_schedule schedule_steps concl output_vars umap (ds : derive_sort) (opt : bool) : schedule option =
-  match ds with
-  | D_Check -> Some (schedule_steps, CheckerSchedule) 
-  | D_Theorem -> Some (shchedule_steps, TheoremSchedule concl)
-  | D_Gen | D_Enum ->
-    sequenceM (evaluate_vars umap) output_vars >>= fun output_values ->
-      let producer_type = (match ds with D_Gen -> PS_G | D_Enum -> PS_E | _ -> failwith "impossible") in
-      Some (schedule_steps, ProducerSchedule (opt, producer_type, rocq_constr_tuple_of_list output_values)) *)
 
-
-
-(*
-type range = Ctr of constructor * range list
-           | Unknown of unknown
-           | Undef of rocq_constr
-           | FixedInput
-           | Parameter of ty_param
-           | RangeHole*)
-
-
-
-
-  
-      
-
-
-
-
-          
-        
-
-
-
-        
-
-
-(* INVARIANT: ind_vars holds, for each hypothesis inductive, the list of variables used in it that haven't already been bound.*)
-(* INVARIANT: var_uses holds, for each variable, a list of pairs (idx,positions), where idx is the index of a hypothesis and positions the list
-   of positions inside that inductive (e.g. [[0;1;1];[2]] for a in P (A c (B b a)) c a). The lists only hold the indices of inductives that are 
-   (* still available to bind.*)
-let rec binding_options' ((ind_vars, var_uses) : rocq_constr_var_map_views) (typed_vars : (var * rocq_type) list) : var_uses_in_relations list =
-  if typed_vars = [] then [var_uses] else begin
-  let var_to_bind_options = list_pair_with_rest typed_vars in
-  let bind_variable_to_relation var ty idx_var_idx_opt : rocq_constr_var_map_views * (var * rocq_constr) list =
-    match idx_var_idx_opt with
-    | None -> 
-        let ind_vars' = List.map (fun (i, vs) -> (i, List.filter (fun v -> v <> var) vs)) ind_vars in
-        let var_uses' = (var, []) :: List.remove_assoc var var_uses in
-        let typed_vars' = List.remove_assoc var typed_vars in
-        ((ind_vars', var_uses'), typed_vars')
-    | Some (idx, var_idx) -> 
-        let ind_uses : var list = safe_assoc idx ind_vars in
-        let ind_uses' = List.filter (fun v -> v <> var) ind_uses in
-        let var_uses' = (var, [(idx, var_idx)]) :: (List.map (fun v -> (v,[])) ind_uses') @ (assoc_remove_all_in_set ind_uses var_uses) in
-        let typed_vars' = assoc_remove_all_in_set ind_uses typed_vars in
-        let ind_vars' = List.map (fun (i, vs) -> (i, List.filter (fun v -> not (List.mem v ind_uses)) vs)) ind_vars in
-            ((ind_vars', var_uses'), typed_vars') in
-  let bind_variable_to_relations var ty : (rocq_constr_var_map_views * (var * rocq_constr) list) list =
-    let uses = None :: List.map (fun x -> Some x) (safe_assoc var var_uses) in
-    List.map (fun idx_var_idx_opt -> bind_variable_to_relation var ty idx_var_idx_opt) uses in
-  var_to_bind_options >>=: (fun (_,(var,ty)) ->
-  bind_variable_to_relations var ty >>=: (fun (dtvm_views, typed_vars) ->
-    binding_options' dtvm_views typed_vars)) 
-  end *)
 
 
 module ScheduleExamples = struct
@@ -2618,280 +2400,3 @@ module ScheduleExamples = struct
 
     ("bind_ioo",inputs, [], base_scheds, rec_scheds)
   end 
-(* let rec schedule_to_mexp (steps, concl, m_sort) : mexp = *)
-
-(*
-open Names
-open Declarations
-open Constrexpr
-
-type coq_expr
-
-val interp_open_coq_expr : Environ.env -> Evd.evar_map -> 
-  coq_expr -> EConstr.constr
-
-val hole : coq_expr
-
-val debug_coq_expr : coq_expr -> unit
-
-type var
-val var_of_id : Id.t -> var   
-val id_of_var : var -> Id.t
-val var_to_string : var -> string
-val inject_var : string -> var 
-val gVar : var -> coq_expr
-
-val gInject : string -> coq_expr
-
-val gType0 : coq_expr   
-
-type ty_param 
-val ty_param_to_string : ty_param -> string
-val inject_ty_param : string -> ty_param
-val gTyParam : ty_param -> coq_expr
-
-type ty_ctr
-val ty_ctr_to_string : ty_ctr -> string
-val gInjectTyCtr : string -> ty_ctr
-val gTyCtr : ty_ctr -> coq_expr
-val tyCtrToQualid : ty_ctr -> Libnames.qualid
-
-type arg
-val gArg : ?assumName:coq_expr ->
-           ?assumType:coq_expr ->
-           ?assumImplicit:bool ->
-           ?assumGeneralized:bool ->
-           unit -> arg
-
-val arg_to_var : arg -> var
-  
-val str_lst_to_string : string -> string list -> string
-
-type coq_type = 
-  | Arrow of coq_type * coq_type
-  | TyCtr of ty_ctr * coq_type list
-  | TyParam of ty_param
-
-val coq_type_size : coq_type -> int
-val coq_type_to_string : coq_type -> string
-
-type constructor 
-val constructor_to_string : constructor -> string
-val gCtr : constructor -> coq_expr
-val injectCtr : string -> constructor
-val ty_ctr_to_ctr : ty_ctr -> constructor
-val ctr_to_ty_ctr : constructor -> ty_ctr 
-
-module type Ord_ty_ctr_type = sig
-  type t = ty_ctr 
-  val compare : t -> t -> int
-  end
-module Ord_ty_ctr : Ord_ty_ctr_type
-
-module type Ord_ctr_type = sig
-  type t = constructor
-  val compare : t -> t -> int
-  end
-module Ord_ctr : Ord_ctr_type
-
-val num_of_ctrs : constructor -> int
-val belongs_to_inductive : constructor -> bool
-
-type ctr_rep = constructor * coq_type 
-val ctr_rep_to_string : ctr_rep -> string
-
-type dt_rep = ty_ctr * ty_param list * ctr_rep list
-val dt_rep_to_string : dt_rep -> string
-
-
-val rocq_constr_to_string : rocq_constr -> string
-
-type dep_ctr = constructor * rocq_constr
-val dep_ctr_to_string : dep_ctr -> string
-
-type dep_dt = ty_ctr * ty_param list * dep_ctr list * rocq_constr
-val dep_dt_to_string : dep_dt -> string
-
-val constr_of_type : string -> ty_param list -> rocq_constr -> Constr.t
-val gType : ty_param list -> rocq_constr -> coq_expr
-val gType' : ty_param list -> rocq_constr -> coq_expr
-val get_type : Id.t -> unit
-val is_inductive : constructor -> bool
-val is_inductive_dt : rocq_constr -> bool
-
-val nthType : int -> rocq_constr -> rocq_constr
-
-val rocq_constr_len : rocq_constr -> int
-
-val dep_result_type : rocq_constr -> rocq_constr
-
-(* option type helpers *)
-val option_map : ('a -> 'b) -> 'a option -> 'b option
-val (>>=) : 'a option -> ('a -> 'b option) -> 'b option                                   
-val isSome : 'a option -> bool
-val cat_maybes : 'a option list -> 'a list
-val foldM : ('b -> 'a -> 'b option) -> 'b option -> 'a list -> 'b option
-val sequenceM : ('a -> 'b option) -> 'a list -> 'b list option
-
-val qualid_to_mib : Libnames.qualid -> mutual_inductive_body
-val dt_rep_from_mib : mutual_inductive_body -> dt_rep option
-val coerce_reference_to_dt_rep : constr_expr -> dt_rep option
-
-val parse_dependent_type : Constr.constr -> rocq_constr option
-
-val dep_dt_from_mib : mutual_inductive_body -> dep_dt option
-val coerce_reference_to_dep_dt : constr_expr -> dep_dt option
-
-val fresh_name : string -> var 
-val make_up_name : unit -> var
-
-(* Generic Combinators *)
-val gApp : ?explicit:bool -> coq_expr -> coq_expr list -> coq_expr 
-val gFun : string list -> (var list -> coq_expr) -> coq_expr
-val gRecFunIn : ?structRec:(var option) -> ?assumType:coq_expr -> string -> string list -> ((var * var list) -> coq_expr) -> (var -> coq_expr) -> coq_expr
-
-val gLetIn : string -> coq_expr -> (var -> coq_expr) -> coq_expr
-(* TODO: HOAS-ify *)
-val gLetTupleIn : var -> var list -> coq_expr -> coq_expr
-  
-val gMatch : coq_expr -> ?catchAll:(coq_expr option) -> ?params:(int) -> ((constructor * string list * (var list -> coq_expr)) list) -> coq_expr
-val gMatchReturn : coq_expr -> ?catchAll:(coq_expr option) -> string -> (var -> coq_expr) ->
-  ((constructor * string list * (var list -> coq_expr)) list) -> coq_expr
-
-val gRecord : (string * coq_expr) list -> coq_expr 
-
-val gAnnot : coq_expr -> coq_expr -> coq_expr
-val gFunTyped : (string * coq_expr) list -> (var list -> coq_expr) -> coq_expr
-val gFunWithArgs : arg list -> ((var list) -> coq_expr) -> coq_expr
-val gRecFunInWithArgs : ?structRec:(var option) -> ?assumType:coq_expr -> string -> arg list -> ((var * var list) -> coq_expr) -> (var -> coq_expr) -> coq_expr
-
-val gProdWithArgs : arg list -> ((var list) -> coq_expr) -> coq_expr
-
-(* Specialized Pattern Matching *)
-
-type matcher_pat = 
-  | MatchCtr of constructor * matcher_pat list
-  | MatchU of var
-  | MatchParameter of ty_param (* Should become hole in pattern, so no binding *)
-                    
-val matcher_pat_to_string : matcher_pat -> string 
-
-val construct_match : coq_expr -> ?catch_all:(coq_expr option) -> (matcher_pat * coq_expr) list -> coq_expr 
-val construct_match_with_return : coq_expr -> ?catch_all:(coq_expr option) ->
-  string -> (var -> coq_expr) -> (matcher_pat * coq_expr) list -> coq_expr
-
-(* Generic List Manipulations *)
-val list_nil : coq_expr
-val lst_append : coq_expr -> coq_expr -> coq_expr
-val lst_appends : coq_expr list -> coq_expr
-val gCons : coq_expr -> coq_expr -> coq_expr 
-val gList : coq_expr list -> coq_expr
-
-(* Generic String Manipulations *)
-val gStr : string -> coq_expr
-val emptyString : coq_expr 
-val str_append  : coq_expr -> coq_expr -> coq_expr 
-val str_appends : coq_expr list -> coq_expr
-val smart_paren : coq_expr -> coq_expr
-
-(* Pair *)
-val gPair : coq_expr * coq_expr -> coq_expr
-val gProd : coq_expr * coq_expr -> coq_expr
-val listToPairAux : (('a *'a) -> 'a) -> ('a list) -> 'a
-val gTuple      : coq_expr list -> coq_expr
-val gTupleType  : coq_expr list -> coq_expr
-val dtTupleType : rocq_constr list -> rocq_constr
-
-(* Int *)
-val gInt : int -> coq_expr
-val gSucc : coq_expr -> coq_expr
-val maximum : coq_expr list -> coq_expr
-val glt : coq_expr -> coq_expr -> coq_expr
-val gle : coq_expr -> coq_expr -> coq_expr
-
-(* Eq *)
-val gEq : coq_expr -> coq_expr -> coq_expr
-
-(* Maybe *)
-val gOption : coq_expr -> coq_expr
-val gNone : coq_expr -> coq_expr
-val gSome : coq_expr -> coq_expr -> coq_expr
-val gNone' : coq_expr
-val gSome' : coq_expr -> coq_expr
-
-
-(* boolean *)
-val gNot   : coq_expr -> coq_expr
-val g_true  : coq_expr
-val g_false : coq_expr               
-val decToBool : coq_expr -> coq_expr
-val decOptToBool : coq_expr -> coq_expr
-val gBool  : coq_expr
-val gIf : coq_expr -> coq_expr -> coq_expr -> coq_expr
-
-(* list *)
-
-(* unit *)
-val gUnit : coq_expr
-val gTT   : coq_expr
-
-(* dec *)
-val g_dec : coq_expr -> coq_expr
-val g_decOpt : coq_expr -> coq_expr -> coq_expr
-val g_dec_decOpt : coq_expr
-
-(* checker *)
-
-val g_checker : coq_expr -> coq_expr
-
-
-(* (\* Gen combinators *\) *)
-val g_forAll : coq_expr -> coq_expr -> coq_expr
-val g_arbitrary : coq_expr
-val g_quickCheck : coq_expr -> coq_expr
-val g_show : coq_expr -> coq_expr
-
-(* val gGen : coq_expr -> coq_expr *)
-(* val returnGen  : coq_expr -> coq_expr  *)
-(* val bindGen    : coq_expr -> string -> (var -> coq_expr) -> coq_expr  *)
-(* val bindGenOpt : coq_expr -> string -> (var -> coq_expr) -> coq_expr  *)
-
-(* val oneof : coq_expr list -> coq_expr *)
-(* val frequency : (coq_expr * coq_expr) list -> coq_expr *)
-(* val backtracking : (coq_expr * coq_expr) list -> coq_expr *)
-(* val uniform_backtracking : coq_expr list -> coq_expr *)
-
-(* Recursion combinators / fold *)
-val fold_ty  : ('a -> coq_type -> 'a) -> (ty_ctr * coq_type list -> 'a) -> (ty_param -> 'a) -> coq_type -> 'a
-val fold_ty' : ('a -> coq_type -> 'a) -> 'a -> coq_type -> 'a 
-
-val dep_fold_ty  : ('a -> rocq_constr -> 'a) -> ('a -> var -> rocq_constr -> 'a) ->
-                   (ty_ctr * rocq_constr list -> 'a) -> (constructor * rocq_constr list -> 'a) -> 
-                   (ty_param -> 'a) -> (var -> 'a) -> rocq_constr -> 'a
-
-(* Generate Type Names *)
-val generate_names_from_type : string -> coq_type -> string list 
-val fold_ty_vars : (var list -> var -> coq_type -> 'a) -> ('a -> 'a -> 'a) -> 'a -> coq_type -> var list -> 'a
-
-(* val defineConstant : string -> coq_expr -> var
-   val defineTypedConstant : string -> coq_expr -> coq_expr -> var *)
-val declare_class_instance
-  : ?global:bool -> ?priority:int
-  -> arg list -> string -> (var list -> coq_expr) -> (var list -> coq_expr)
-  -> unit
-
-val define_new_inductive : dep_dt -> unit
-
-(* List utils *)
-val list_last : 'a list -> 'a 
-val list_init : 'a list -> 'a list 
-val list_drop_every : int -> 'a list -> 'a list
-val take_last : 'a list -> 'a list -> ('a list * 'a)
-val list_insert_nth : 'a -> 'a list -> int -> 'a list
-
-val sameTypeCtr  : ty_ctr -> coq_type -> bool
-val isBaseBranch : ty_ctr -> coq_type -> bool
-                                                
-val find_typeclass_bindings : string -> ty_ctr -> (bool list) list
-
- *)

@@ -38,6 +38,9 @@ Inductive bind : env -> nat -> type -> Prop :=
 
 (* Generate variables of a specific type in an env. *)
 Derive ArbitrarySizedSuchThat for (fun x => bind G x t).
+Print GenSizedSuchThatbind.
+
+
 (* Get the type of a given variable in an env. *)
 Derive EnumSizedSuchThat for (fun t => bind G x t).
 (* Check whether a variable has a given type in an env. *)
@@ -74,9 +77,6 @@ Inductive typing (G : env) : term -> type -> Prop :=
       typing G e2 t1 ->
       typing G e1 (Arrow t1 t2) ->
       typing G (App (Abs N e1) e2) t2.
-
-Derive DecOpt for (typing G e t).      
-Print DecOpttyping.
 
 Fixpoint typeOf G e : option type :=
   match e with
@@ -131,6 +131,9 @@ Fixpoint gen_typed (sz : nat) (Γ : env) (t : type) : G term :=
 
 (* Generate terms of a specific type in an env. *)
 Derive ArbitrarySizedSuchThat for (fun e => typing G e t).
+Print GenSizedSuchThattyping.
+
+
 Derive EnumSizedSuchThat for (fun t => typing G e t).
 
 (* Check whether a variable has a given type in an env. *)
