@@ -438,10 +438,8 @@ let dep_parse_constructors nparams param_names oib : rocq_ctr list option =
                          | Names.Anonymous -> DTyVar (make_up_name ()) (* Make up a name, but probably can't be used *)
                ) pat_names in 
 
-(*     msgerr (str "Calculating result type" ++ fnl ()); *)
     parse_dependent_type_internal (1 + (List.length ctr_pats)) nparams result (Some oib) arg_names >>= fun result_ty ->
 
-(*     msgerr (str "Calculating types" ++ fnl ()); *)
     sequenceM (fun x -> x) (List.mapi (fun i ty -> parse_dependent_type_internal i nparams ty (Some oib) arg_names) (List.map (Vars.lift (-1)) pat_types)) >>= fun types ->
     Some (ctr_id, dep_arrowify result_ty pat_names types)
   in
@@ -1174,7 +1172,6 @@ module VarOrd = struct
 end
 
 module VM = Map.Make(VarOrd)
-(* module US = Set.Make(UnknownOrd) *)
 
 module VS = Set.Make(VarOrd)
 
@@ -1244,11 +1241,6 @@ let schedule_with_dependents (s : schedule) : (schedule_step * (rocq_constr * in
 let inductive_schedule_dependents (is : inductive_schedule) : (rocq_constr * int list * derive_sort * bool) list =
   let (_, _, param_deps, base_scheds, rec_scheds) = is in
   List.concat (List.map (fun (schd,_) -> schedule_dependents schd) (base_scheds @ rec_scheds))
-
-let inductive_schedule_with_dependents (is : inductive_schedule) =
-  let (name, vars, param_deps, base_scheds, rec_scheds) = is in
-  let match_schd_deps = List.map (fun (schd,matches) -> schedule_with_dependents schd, matches) in
-  name, vars, match_schd_deps base_scheds, match_schd_deps rec_scheds
 
 type rec_or_base = Base | Rec
 
@@ -1420,17 +1412,12 @@ let inductive_schedules_to_def_mexps (components : (inductive_schedule * derive_
       let names = List.map (fun (is,_,_) -> match is with (n,_,_,_,_) -> n) comp in
       let comp = List.map (fun (is, ds, is_constrained) -> turn_def_calls_into_mutrec_calls is names, ds, is_constrained) comp in
       let mut_body = inductive_schedule_with_dependencies_to_mexp [] comp "placeholder" in 
-      (* let bodies = match mut_body with MMutFix (funs, _) -> funs | _ -> failwith "Expected a MMutFix" in *)
-      let body_to_mexp (name, arg_tys, body, ds) = name, MFix (name, arg_tys, body, ds), ds in
       let update_name n = function 
         | MLet (name, MMutFix (funs, _), ds) -> MLet (name, MMutFix (funs, var_of_string n), ds)
         | _ -> failwith "Expected a MLet with MMutFix body" in
         
-        (* function MMutFix (funs, _) -> MMutFix (funs, var_of_string n) | _ -> failwith "Expected a MMutFix" in *)
       List.map (fun name -> (var_of_string name, update_name name mut_body, D_Gen)) names in (*Fix to get a ds into scope out of the mut body*)
   
-        (*name, MFun (List.map (fun (x,t) -> PVar x, Some t) arg_tys, body), ds in *)
-      (* List.map body_to_mexp bodies in *)
   List.map handle_component components
 
 let inductive_schedules_to_def_constr_exprs (components : (inductive_schedule * derive_sort * is_constrained) list list) (output_ind_schd_name : string) : (var * constr_expr) list list =
@@ -1498,40 +1485,6 @@ let find_typeclass_bindings ctr =
         typ 
     | _ -> failwith ("hint not a constant in search for " ^ Libnames.string_of_qualid ctr)
     in
-
-  let rec find_concl (typ : rocq_constr) : rocq_constr = 
-    match typ with
-    | DProd (v, t) -> find_concl t
-    | DArrow (v, t) -> find_concl t
-    | DApp _ -> typ
-  in
-
-  let rocq_eq_to_alpha (a : rocq_constr) (b : rocq_constr) : bool = 
-    let rec aux (a : rocq_constr) (b : rocq_constr) (m : (var, var) Hashtbl.t) : bool =
-      try
-      match a, b with
-      | DTyParam p1, DTyParam p2 -> String.equal (var_to_string p1) (var_to_string p2)
-      | DTyCtr (c1, ds1), DTyCtr (c2, ds2) -> 
-        String.equal (ty_ctr_to_string c1) (ty_ctr_to_string c2) && List.for_all2 (fun d1 d2 -> aux d1 d2 m) ds1 ds2
-      | DCtr (c1, ds1), DCtr (c2, ds2) -> 
-        String.equal (constructor_to_string c1) (constructor_to_string c2) && List.for_all2 (fun d1 d2 -> aux d1 d2 m) ds1 ds2
-      | DTyVar v1, DTyVar v2 -> 
-        (try 
-          let v2' = Hashtbl.find m v1 in
-          String.equal (var_to_string v2) (var_to_string v2')
-        with Not_found -> 
-          Hashtbl.add m v1 v2;
-          true)
-      | DApp (d1, ds1), DApp (d2, ds2) -> 
-        aux d1 d2 m && List.for_all2 (fun d1 d2 -> aux d1 d2 m) ds1 ds2
-      | DNot d1, DNot d2 -> aux d1 d2 m
-      | DHole, DHole -> true
-      | DArrow _, DArrow _ | DProd _, DProd _ | DMatch _, DMatch _ -> failwith ("equality not supported for arrows and products: " ^ rocq_constr_to_string a ^ " =? " ^ rocq_constr_to_string b)
-      | _ -> false
-      with Invalid_argument _ -> false
-    in
-    aux a b (Hashtbl.create 10)
-  in 
 
   let rec parse_pair_matches (ins : var list) (matches : rocq_constr) : (var list * rocq_constr) option =
     match matches with
@@ -1628,13 +1581,11 @@ let find_typeclass_bindings ctr =
     | Some (Names.GlobRef.IndRef i) when quickchick_prefix_check (Names.MutInd.to_string (fst i)) ->
         msg_debug (str "Found a QuickChick hint:" ++ str (Names.MutInd.to_string (fst i)) ++ fnl ());
         List.fold_left (fun acc hint ->
-          (* Feedback.msg_notice (str "Processing Hint: " ++ Hints.FullHint.print env evd hint ++ fnl ()); *)
           handle_full_hint hint acc) parsed hints
     | Some (Names.GlobRef.IndRef i) ->
       msg_debug (str "Not a QuickChick hint:" ++ str (Names.MutInd.to_string (fst i)) ++ fnl ());
       parsed
     | _ -> 
-      (* List.iter (fun hint -> Feedback.msg_notice (str "Not QuickChick: " ++ Hints.FullHint.print env evd hint ++ fnl ())) hints; *)
       parsed
     end
       
@@ -1643,270 +1594,7 @@ let find_typeclass_bindings ctr =
     print_parsed_classes parsed_final;
     parsed_final
   
-(* 
-let find_typeclass_bindings' typeclass_name ctr =
-  msg_debug (str ("Finding typeclass bindings for:" ^ Libnames.string_of_qualid ctr) ++ fnl());
-  let env = Global.env () in
-  let evd = Evd.from_env env in
-  let db = Hints.searchtable_map "typeclass_instances" in
-  let result = ref [] in
-  let prod_check i =
-    String.equal (Names.MutInd.to_string (fst i)) ("QuickChick.DependentClasses." ^ typeclass_name)  in    
-  let dec_check i =
-    String.equal (Names.MutInd.to_string (fst i)) ("QuickChick.Decidability." ^ typeclass_name)  in
-  let type_of_hint h = 
-    (* Go from the hint to the type of its constant *)
-    let (_,ec) = Hints.hint_as_term h in
-    let c = EConstr.to_constr evd ec in
-    match Constr.kind c with
-    | Constr.Const cst -> 
-      let (typ,_constraints) = Environ.constant_type env cst in
-        typ 
-    | _ -> failwith ("hint not a constant in search for " ^ Libnames.string_of_qualid ctr)
-    in
-  (* Find the conclusion of a type *)
-  let rec find_concl typ =
-    match Constr.kind typ with
-    | Constr.Lambda (_binder,_binder_type,typ') -> find_concl typ'
-    | Constr.Prod (_binder,_binder_type,typ') -> find_concl typ'
-    | Constr.App _ -> typ
-    | _ -> failwith ("FindConcl can't handle: " ^ Pp.string_of_ppcmds (Printer.pr_constr_env env evd typ))
-  in
-  let handle_producer_hint lambda =
-    match Constr.kind lambda with
-    | Constr.Lambda (_binder,_binder_type,Constr.App (Constr.Ind ((mind,_),_) as cln,clargs)) ->
-      msg_debug (str "Entering producer lambda" ++ fnl ());
-      msg_debug (str "Found a hint for: " ++ Constr.debug_print cln ++ fnl ());
-      let mind_id = Label.to_id (MutInd.label mind) in
-      let ctr_id = qualid_basename ctr in
-      if Id.equal mind_id ctr_id then begin
-        msg_debug (str "Producer Match Found: " ++ Id.print ctr_id ++ fnl ());
-        let standard = ref true in
-        (* Calculate mode as list of booleans: *)
-        let res = 
-          List.map (fun arg ->
-            if Constr.isMeta arg then
-              false (* Check not equal id name *)
-            else if Constr.isRef arg then
-              false
-            (* Bound by the last lambda means it's output *)
-            else if Constr.isRelN 1 arg then
-              true
-            else if Constr.isRel arg then
-              false
-            else if Constr.isApp arg then
-              begin standard := false; true end
-            else failwith "New FTB/0"
-          ) (Array.to_list clargs) in
-        if !standard then begin
-            List.iter (fun b -> msg_debug (bool b ++ str " ")) res;
-            msg_debug (fnl ());
-            result := res :: !result
-          end
-        else msg_debug (str "not standard/producer" ++ fnl ())
-        end 
-      else 
-        msg_debug (str "Function Applied in the lambda's body not desired ty_ctr: " ++ Id.print ctr_id ++ str " " ++ Id.print mind_id ++ fnl ())
-    | Constr.Lambda (_,_,Constr.App _) -> msg_debug (str "First arg is lambda but its body isn't an applied inductive" ++ fnl ())
-    | Constr.Lambda _ -> msg_debug (str "First arg is lambda but its body isn't an application at all" ++ fnl ())
-    | _ -> msg_debug (str "First arg not lambda" ++ fnl ())
-  in
-  let handle_checker_hint app =
-    if Id.to_string (qualid_basename ctr) = "eq" then ()
-    else match Constr.kind app with
-    | Constr.App (Constr.Ind ((mind,_),_) as cln,clargs) ->
-      let mind_id = Label.to_id (MutInd.label mind) in
-      let ctr_id = qualid_basename ctr in
-      msg_debug (str "In checker/app for: " ++ Id.print ctr_id ++ str " " ++ Id.print mind_id ++ fnl ());
-      if Id.equal mind_id ctr_id then (
-        msg_debug (str "Checker Match Found: " ++ Id.print ctr_id ++ fnl ());
-        let standard = ref true in
-        (* Calculate mode as list of booleans: *)
-        (* For checking, mode is alsways false *)
-        let res = List.map (fun arg -> 
-                      if Constr.isMeta arg then
-                        false (* Check not equal id name *)
-                      else if Constr.isRef arg then
-                        false
-                      else if Constr.isRel arg then
-                        false
-                      else if Constr.isApp arg then
-                        begin standard := false; true end
-                      else failwith "New FTB/0"
-                    ) (Array.to_list clargs) in
-        if !standard then begin
-            List.iter (fun b -> msg_debug (bool b ++ str " ")) res;
-            msg_debug (fnl ());
-            result := res :: !result
-          end
-        else msg_debug (str "not standard/checker" ++ fnl ())
-      )
-      else
-        msg_debug (str "not equal/checker/isApp" ++ fnl ())
-    | _ -> msg_debug (str "not an applied inductive" ++ fnl ())
-      in
 
-  let handle_checker_hint app = 
-    if Id.to_string (qualid_basename ctr) = "eq" then ()
-    else if isApp app then (
-      msg_debug (str "Entering checker app" ++ fnl ());               
-      let (cln, clargs) = Constr.destApp app in               
-      (* TODO: Search for Mutual inductives properly *)
-      let ((mind,_),_) = Constr.destInd cln in
-      let mind_id = Label.to_id (Names.MutInd.label mind) in
-      let ctr_id = qualid_basename ctr in
-      msg_debug (str "In checker/app for: " ++ Id.print ctr_id ++ str " " ++ Id.print mind_id ++ fnl ());
-      
-      if Id.equal mind_id ctr_id then (
-        msg_debug (str "Checker Match Found: " ++ Id.print ctr_id ++ fnl ());
-        let standard = ref true in
-        (* Calculate mode as list of booleans: *)
-        (* For checking, mode is alsways false *)
-        let res = List.map (fun arg -> 
-                      if Constr.isMeta arg then
-                        false (* Check not equal id name *)
-                      else if Constr.isRef arg then
-                        false
-                      else if Constr.isRel arg then
-                        false
-                      else if Constr.isApp arg then
-                        begin standard := false; true end
-                      else failwith "New FTB/0"
-                    ) (Array.to_list clargs) in
-        if !standard then begin
-            List.iter (fun b -> msg_debug (bool b ++ str " ")) res;
-            msg_debug (fnl ());
-            result := res :: !result
-          end
-        else msg_debug (str "not standard/checker" ++ fnl ())
-      )
-      else
-        msg_debug (str "not equal/checker/isApp" ++ fnl ());
-    )
-    else msg_debug (str "not isApp 0" ++ fnl ())
-    in
-  
-  let handle_hint_repr b h =
-    let typ = type_of_hint h in
-    let (typ_cl, typ_args) = Constr.destApp (find_concl typ) in
-    msg_debug (str "Conclusion of current hint is: " ++ fnl ());
-    msg_debug (Constr.debug_print (find_concl typ));
-    try 
-    if b then
-      (* For producer, check the second argument (the first is the type of the lambda) *)
-      handle_producer_hint typ_args.(1)
-    else
-      (* For checker, check the first argument. *)
-      handle_checker_hint typ_args.(0)
-    with _ -> msg_debug (str "exception?" ++ fnl ())
-  in
-  let handle_hint b hint =
-    msg_debug (str "Processing... (" ++ str typeclass_name ++ str ")"  ++ Hints.FullHint.print env evd hint ++ fnl ());
-    begin match Hints.FullHint.repr hint with
-    | Hints.Res_pf h ->
-       handle_hint_repr b h
-    | Hints.Give_exact h ->
-       handle_hint_repr b h
-    (* TODO: Replicate pattern-based behavior from below in constr form *)
-    | Hints.Extern (Some (PApp (PRef g, args)), _) ->
-    (* begin match Hints.FullHint.pattern hint with
-    | Some (PApp (PRef g, args)) -> *)
-       begin
-         let arg_index = if b then 1 else 0 in 
-(*         msg_debug (str ("Hint for :" ^ (string_of_qualid (Nametab.shortest_qualid_of_global Id.Set.empty g))) ++ fnl ());
-         msg_debug (str (Printf.sprintf "Arg Length: %d. Arg index: %d\n" (Array.length args) arg_index) ++ fnl ());*)
-         match args.(arg_index) with
-         | PLambda (name, t, PApp (PRef gctr, res_args)) ->
-            let gctr_qualid = Nametab.shortest_qualid_of_global Id.Set.empty gctr in
-            if qualid_eq gctr_qualid ctr then begin
-                msg_debug (str "Found a match!" ++ fnl ());
-                msg_debug (str ("Conclusion is Application of:" ^
-                                  (Libnames.string_of_qualid (Nametab.shortest_qualid_of_global Id.Set.empty gctr)))
-                           ++ fnl ());
-                let standard = ref true in
-                let res = List.map (fun p ->
-                              match p with
-                              | PMeta (Some id) ->
-                                 if not (Name.equal (Name id) name)
-                                 then false
-                                 else failwith "FTB/How is this true"
-                              | PRef _ -> false 
-                              | PRel _ -> true
-                              | PApp _ -> standard := false; true                                        
-                              | _ -> debug_pattern "FTB/0" p
-                            ) (Array.to_list res_args) in
-                if !standard then 
-                  result := res :: !result
-                else ()
-              end
-            else ()
-         | PApp (PRef gctr, res_args) ->
-            let gctr_qualid = Nametab.shortest_qualid_of_global Id.Set.empty gctr in
-            if qualid_eq gctr_qualid ctr then begin
-                msg_debug (str "Found a match!" ++ fnl ());
-                msg_debug (str ("Conclusion is Application of:" ^
-                                  (Libnames.string_of_qualid (Nametab.shortest_qualid_of_global Id.Set.empty gctr)))
-                           ++ fnl ());
-                let standard = ref true in
-                let res = List.map (fun p ->
-                              match p with
-                              | PMeta (Some id) -> false
-                              | PRef _ -> false 
-                              | PRel _ -> true
-                              | PApp _ -> standard := false; true                                        
-                              | _ -> debug_pattern "FTB/00" p
-                            ) (Array.to_list res_args) in
-                if !standard then 
-                  result := res :: !result
-                else ()
-              end
-            else ()
-         | PLambda (name, t, PCase (_, arr, _, [n, ns, PApp (PRef gctr, res_args)])) ->
-            let gctr_qualid = Nametab.shortest_qualid_of_global Id.Set.empty gctr in
-            if qualid_eq gctr_qualid ctr then begin
-                msg_debug (str "Found a match!" ++ fnl ());
-                msg_debug (str ("Conclusion is Application of:" ^
-                                  (Libnames.string_of_qualid (Nametab.shortest_qualid_of_global Id.Set.empty gctr)))
-                           ++ fnl ());
-                let standard = ref true in
-                let res = List.map (fun p ->
-                              match p with
-                              | PMeta (Some id) -> false 
-(*                                 if not (Name.equal (Name id) name)
-                                 then false
-                                 else failwith "FTB/How is this true" *)
-                              | PRef _ -> false 
-                              | PRel _ -> true
-                              | PApp _ -> standard := false; true                                        
-                              | _ -> debug_pattern "FTB/0" p
-                            ) (Array.to_list res_args) in
-                if !standard then 
-                  result := res :: !result
-                else ()
-              end
-            else ()
-         | PMeta (Some id) -> () (* failwith (Id.to_string id) *)
-         | PProd _ -> ()
-         | _ -> debug_pattern "FTB/1" args.(arg_index)
-       end
-    | Hints.Extern _ -> failwith "FTB/Apply"      
-    | Hints.ERes_pf _ -> failwith "FTB/EApply"
-    | Hints.Res_pf_THEN_trivial_fail _ -> failwith "FTB/Imm"
-    | Hints.Unfold_nth _ -> failwith "FTB/Unf"
-    end in
-  Hints.Hint_db.iter (fun go hm hints ->
-      begin match go with
-      | Some (GlobRef.IndRef i) when prod_check i ->
-         List.iter (handle_hint true ) hints
-      | Some (GlobRef.IndRef i) when dec_check i ->
-         if Id.to_string (qualid_basename ctr) = "eq" then result := [[false; false; false]]
-         else List.iter (handle_hint false) hints
-      | _ -> ()
-      end
-    ) db;
-    !result *)
-
-(* type bindings_and_unbound = binding list * rocq_constr list  *)
 type relation_variables = (int * var list) list
 type var_uses_in_relations = (var * (int * int list list) list) list
 type rocq_constr_var_map_views = relation_variables * var_uses_in_relations
