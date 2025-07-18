@@ -498,7 +498,7 @@ let handle_branch
       (match_inp : var -> matcher_pat -> coq_expr -> coq_expr -> coq_expr)
       (let_in_expr : string -> coq_expr -> (var -> coq_expr) -> coq_expr)
       (let_tuple_in_expr : var -> var list -> coq_expr -> coq_expr)
-      (gen_ctr : ty_ctr)
+      (gen_ctr : ty_ctr)                                 (* [gen_ctr] is the name of the inductive relation we are targeting *)
       (init_umap : range UM.t)
       (init_tmap : dep_type UM.t)
       (input_ranges : range list)
