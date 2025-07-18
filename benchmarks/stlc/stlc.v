@@ -57,6 +57,27 @@ Inductive NatChain (A B : nat) : Prop :=
 Derive DecOpt for (NatChain A B).
 Print DecOptNatChain.
 
+Derive EnumSizedSuchThat for (fun y => NatChain x y).
+Print EnumSizedSuchThatNatChain.
+
+Derive GenSizedSuchThat for (fun y => NatChain x y).
+Print GenSizedSuchThatNatChain.
+
+
+Inductive Permutation : list nat -> list nat -> Prop :=
+  | perm_trans : forall l l' l'',
+                 Permutation l l' ->
+                 Permutation l' l'' ->
+                 Permutation l l''.
+
+Derive DecOpt for (Permutation l l'').
+Print DecOptPermutation.
+
+Derive EnumSizedSuchThat for (fun l'' => Permutation l l'').
+Print EnumSizedSuchThatPermutation.
+
+Derive GenSizedSuchThat for (fun l'' => Permutation l l''). 
+Print GenSizedSuchThatPermutation.
 
 (* Typing *)
 

@@ -10,6 +10,10 @@ Inductive Sorted : list nat -> Prop :=
 | Sorted_cons x y l :
     x <= y -> Sorted (y :: l) -> Sorted (x :: y :: l).
 
+Derive GenSizedSuchThat for (fun x => le x y).
+Derive GenSizedSuchThat for (fun l => Sorted l).
+Print GenSizedSuchThatSorted.
+
 (* We need to derive a checker for the <= relation as well. *)
 Derive DecOpt for (le x y).
 Derive DecOpt for (Sorted l).
