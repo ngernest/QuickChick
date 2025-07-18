@@ -890,9 +890,13 @@ let handle_branch
                    str (String.concat " " (List.map range_mode_to_string ms)) ++
                    str (String.concat " " (List.map (Printf.sprintf "%b") bs)) ++
                    fnl ());
+      
       (* [uts] is a map from [unknown]s to types *)             
       let uts = ref UM.empty in
       let need_filtering = ref None in
+
+      (* [unknown_gen] is a list of triples of the form (unknown, type of unknown, index in [ms])
+         (this represents an unknown of some type for which we need to genreate a value) *)
       let unknown_gen    = ref [] in
       let add_to_map u dt =
         try
