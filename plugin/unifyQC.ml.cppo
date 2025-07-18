@@ -890,7 +890,7 @@ let handle_branch
                    str (String.concat " " (List.map range_mode_to_string ms)) ++
                    str (String.concat " " (List.map (Printf.sprintf "%b") bs)) ++
                    fnl ());
-                   
+      (* [uts] is a map from [unknown]s to types *)             
       let uts = ref UM.empty in
       let need_filtering = ref None in
       let unknown_gen    = ref [] in
@@ -926,6 +926,8 @@ let handle_branch
       (!uts, !need_filtering, !unknown_gen)
     in
 
+    (* The type constructor [c] in the current hypothesis is different from the inductive relation we're targeting [gen_ctr],
+       i.e. the hypothesis is {i not} a recursive reference to the inductive relation *)
     if not (gen_ctr = c) then
       begin
         msg_debug (str "Non-recursive constructor" ++ fnl ());
@@ -1078,6 +1080,8 @@ let handle_branch
         end
       end
     else begin
+
+      (* The current hypothesis is a recursive reference to the inductive relation we're targeting *)
       
       msg_debug (str (Printf.sprintf "Recursive:\nInput ranges: %s\nMode Ranges: %s\n" (ranges_to_string input_ranges) (ranges_to_string ranges)) ++ fnl ());
 
