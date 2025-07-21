@@ -620,6 +620,8 @@ let handle_branch
        (* Remove checks from cmap *)
        msg_debug (str "Actual checks needed" ++ fnl ());
        cmap := CMap.remove (DTyVar x) !cmap;
+
+       (* Update the [umap] with a mapping [x |-> Fixed] *)
        umap := fixVariable x !umap;
        bind true
          (stMaybe opt g (var_to_string x) checks)
