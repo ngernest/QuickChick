@@ -902,7 +902,7 @@ let handle_branch
       let need_filtering = ref None in
 
       (* [unknown_gen] is a list of triples of the form (unknown, type of unknown, index in [ms])
-         (this represents an unknown of some type for which we need to genreate a value) *)
+         (this represents an unknown of some type for which we need to generate a value) *)
       let unknown_gen    = ref [] in
       let add_to_map u dt =
         try
@@ -1123,6 +1123,11 @@ let handle_branch
         is_base := false;
           
         (* Then just make the recursive call. *)
+
+        (* - [uts] is a map from [unknown]s to types 
+           - [need_filtering] contains the unification state corresponding to [ModePartlyDef]
+        .  - [unknown_gen] is a list of triples of the form (unknown, type of unknown, index in [ms])
+            (this represents an unknown of some type for which we need to generate a value) *)
         let (uts, need_filtering, unknown_gen) = compute_for_mode curr_modes rec_bs true in
         
         let unknowns_for_mode = UM.bindings uts in
