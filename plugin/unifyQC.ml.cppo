@@ -897,6 +897,8 @@ let handle_branch
       
       (* [uts] is a map from [unknown]s to types *)             
       let uts = ref UM.empty in
+
+      (* [need_filtering] contains the unification state corresponding to [ModePartlyDef] *)
       let need_filtering = ref None in
 
       (* [unknown_gen] is a list of triples of the form (unknown, type of unknown, index in [ms])
