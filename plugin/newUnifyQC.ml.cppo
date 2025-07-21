@@ -362,25 +362,50 @@ let rec correct_variables (umap : umap) (scd : schedule_step list) : schedule_st
   | S_Let (v, c) :: scd' ->
     S_Let (correct_var umap v, correct_rocq_constr umap c) :: correct_variables umap scd'
 
-
+(* GGG unification algorithm is caleld here
+   - [result_vars] contains the list of arguments to an inductive relation
+*)
 let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name : ty_ctr option) (result_vars : (var * rocq_constr) list) (output_vars : var list) (ds : derive_sort) opt : (schedule * (var * pat) list * (var * var) list) list = 
 
+  (* extract the universally-quantified variables, hyps and conclusion for the type (inductive relation) we're targeting *)
   let vars, hyps, concl = type_info typ in
 
+  (* check whether a type is in [Type], [Prop] or [Set] *)
   let is_Type ty = match ty with DTyCtr (c,_) -> ty_ctr_eq c (ty_ctr_of_string "Type") 
                                               || ty_ctr_eq c (ty_ctr_of_string "Prop") 
                                               || ty_ctr_eq c (ty_ctr_of_string "Set") 
                                 | DHole -> true
                                 | _ -> false in
 
+  (* Starting with an empty [umap], go over all the arguments to the inductive, 
+     if the variable is one of the outputs (in [output_vars]), then we set it to [Undef ty],
+      otherwise its an input, so we set its range to be [Fixed]
+     * [output_vars] is a subset of [result_vars]
+     
+     
+     *)
   let init_umap' : umap = List.fold_left (fun umap (v, ty) ->
     if List.mem v output_vars then 
       UM.add v (Undef ty) umap 
     else
       UM.add v FixedInput umap) UM.empty result_vars in
+
+  (* Then we fold over the universally-quantified variables of the constructor and add them to the umap we've built so far 
+     + If a variable is a [type], then its a (Type) parameter (e.g. [a] in [List a])
+     + otherwise its [Undef] (we don't know if its an input or output)
+  *)
   let init_umap = List.fold_left (fun umap (v, ty) -> if is_Type ty then UM.add v (Parameter v) umap else UM.add v (Undef ty) umap) init_umap' vars in
   
-  
+  (* Takes in:
+      - [dt_args]: the top-level arguments to the inductive, converted to [ranges] 
+      - [concl_arg]: exprs inside the args of the conclusion of the constructor, converted to [ranges]
+      - [umap]: the existing unknown map
+      - [eqs]: the set of equalities 
+      - [matches]: a list of pattern-matches 
+      
+      - pairwise unifies the stuff in [dt_args] & [concl_args], 
+        upating the [umap], [eqs] and [matches] as we go,
+        returning the final resulting [umap], [eqs] and [(variables, pattern for the variable) list]  *)
   let rec unify_range_lists (dt_args : range list) (concl_args : range list)
     (umap : umap) (eqs : EqSet.t) matches : (umap * EqSet.t * (unknown * NewGenericLib.pat) list) option =
     (* Unify the two ranges, updating the mapping and equation set as necessary. *)
@@ -397,6 +422,9 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
       end
     | _ -> failwith "Mismatched lengths in unify_range_lists" in
 
+  (* Convert the inductive args (result_vars) to [ranges] 
+     - if is a type its a parameter, otherwise its an unknown
+  *)
   let result_ranges = List.map (fun (v, ty) -> 
     if is_Type ty then 
       (Feedback.msg_notice (str ("Type variable: " ^ var_to_string v));
@@ -404,6 +432,11 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
 
   Error.msg_debug (str ("Result ranges: " ^ String.concat ", " (List.map range_to_string result_ranges)) ++ fnl ());
 
+  (* Examining the conclusion 
+     - for every arg in the conclusion, we're gonna convert it to a range, 
+       then call [unify_range_lists] on it
+      - this gives us the result of unification 
+      - this uses the [init_umap] we defined earlier (so all the names are already logged in the [umap] for unificaiton purposes) *)
   let state = 
       match ds, concl with
       | D_Thm, _ -> Some (init_umap, EqSet.empty, [])
@@ -424,6 +457,7 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
     | Parameter _ -> true
     | r -> failwith ("Unexpected case in is_range_fixed" ^ range_to_string r) in
 
+  (* figure out what the output indices are so we can come up w/ a list of schedules *)
   let output_indices = filter_mapi (fun i (v,_) -> if List.mem v output_vars then Some i else None) result_vars in
 
   let is_fixed umap v = is_range_fixed umap (Unknown v) in

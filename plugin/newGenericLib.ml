@@ -1639,25 +1639,61 @@ let guard (b : bool) : unit list =
 let (>>:) (l : 'a list) (next : 'b list) : 'b list =
   l >>=: (fun _ -> next)
 
+(** Takes in: 
+   - a list of [variables] & their types
+   - list of hypotheses about those varaibles 
+   - already [fixed] vars (e.g. inputs to the inductive relation)
+   - [rec_call] represents what a recursive call looks like
+     + [ty_ctr] matches & [int list] represents the mode we're generating for 
+     + (the int list is a list of output indices, the indices of the outputs to the inductive)
+  - [derive_sort] says are we deriving a checker/enumerator/generator?
+
+  Outputs:
+  - A list of possible schedule_step lists (a schedule is a [schedule_step list] plus a separate the conclusion)
+    + The conclusion of a schedule is a [schedule_sort] *)
 let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_constr list) (fixed : var list) (rec_call : ty_ctr * int list) (ds : derive_sort) : schedule_step list list =
   (* Feedback.msg_debug (str (ty_ctr_to_string (fst rec_call)) ++ str " " ++ str (String.concat " " (List.map string_of_int (snd rec_call))) ++ fnl ()); *)
+  
+  (* If we have negation, then we just collapse all the negations to a single positive/negative
+     - e.g. double negative is positive *)
   let rec hyp_polarity (h : rocq_constr) : rocq_constr * bool =
     match h with
     | DNot h -> let (h', p) = hyp_polarity h in (h', not p)
     | DTyCtr (ind, args) -> (DTyCtr (ind, args), true)
     | _ -> failwith @@ "Hypothesis is not a type constructor 0" ^ rocq_constr_to_string h in
 
+  (* Given the set of hypotheses, create a map from a hypothesis to its polarity & a list of variables constrained by the hyp *)
   let hypothesis_variables = List.map (fun h -> 
     let (h, p) = hyp_polarity h in
     (h, variables_in_hypothesis h, p)) hypotheses in
+
+  (* Sorts the hypotheses by the no. of variables (this is just a heuristic) 
+     - We would like to work w/ hypotheses that have fewer variables first (fewer generation options to deal with) *)
   let sorted_hypotheses = List.sort (fun (_,v1,_) (_,v2,_) -> compare (List.length v1) (List.length v2)) hypothesis_variables in
 
+  (* Given a hypothesis, which is a Rocq constructor,
+     along with [binding], a list of variables that we are binding with this call,
+     checks whether the generator we're using is recursive
+     
+     e.g. if we're trying to do [(e, tau) <- typing gamma e tau], then 
+    {[ 
+       binding = [e,tau] 
+       h = typing gamma e tau
+     }] 
+       
+  - Existentially quantified variables are just variables that aren't returned
+  (existential quantification only matters once we have a conclusion)
+     
+  *)
   let is_rec_call (binding : var list) (h : rocq_constr) : bool =
     match h with
     | DTyCtr (ind, args) -> 
+      (* An output position is a position where all vars contained are unbound
+         - if they are unbound, we include them in the list of output indices [output_pos] *) 
       let output_pos = filter_mapi (fun i arg ->
         let variables = variables_in_hypothesis arg in
         if variables = [] then None else (*If the argument is filled with a constant, like 0, its not an output.*)
+
         if List.for_all (fun v -> List.mem v binding) variables then Some i else
         if List.exists (fun v -> List.mem v binding) variables then failwith "Hypothesis arguments cannot have both fixed and yet-to-be-bound variables" 
         else None) args in
@@ -1665,6 +1701,9 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
       ty_ctr_eq ind (fst rec_call) && List.sort compare (snd rec_call) = List.sort compare output_pos
     | _ -> failwith @@ "Hypothesis is not a type constructor 1" ^ rocq_constr_to_string h in
 
+  (* After we generate some variables, look at the hypotheses and see if any of them only contain fixed variables
+    (if yes, then we need to check that hypothesis)
+    - [checked_hypotheses] are the hypotheses that have been checked so far *)
   let collect_check_steps (bound_vars : var list) (checked_hypotheses : int list) (sorted_hypotheses : (rocq_constr * var list * bool) list) : (int * (source * bool)) list =
     filter_mapi (fun i (h, vs, polarity) -> 
       if not (List.mem i checked_hypotheses) && List.for_all (fun v -> List.mem v bound_vars) vs then 
@@ -1686,7 +1725,9 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
     | [] -> ([], [], [])
     | (a,b,c) :: xs -> let (as', bs', cs') = split3 xs in (a :: as', b :: bs', c :: cs') in
     
-
+  (* Ensures the inputs & outputs aren't generated under the same constructor 
+      - e.g. in TApp, the hypothesis [typing Γ e1 (TFun t1 t2)] contains a term [TFun t1 t2] where 
+        [t1] is Undef (not generated yet / not an input) & [t2] is fixed *)
   let outputs_inputs_not_under_same_constructor (hyp : rocq_constr) (output_vars : var list) : bool =
     match hyp with
     | DTyCtr (ind, args) ->
@@ -1696,6 +1737,8 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
         List.exists (fun v -> List.mem v output_vars) variables && List.exists (fun v -> not (List.mem v output_vars)) variables) args
     | _ -> failwith @@ "Hypothesis is not a type constructor 3" ^ rocq_constr_to_string hyp in
 
+  (* we can't output something and then assert that it equals the output of a (non-constructor) function  
+     (since we don't have access to the function) *)
   let outputs_not_constrained_by_function_application (hyp : rocq_constr) (output_vars : var list) : bool =
     match hyp with
     | DTyCtr (ind, args) ->
@@ -1710,7 +1753,25 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
         check false arg) args
     | _ -> failwith @@ "Hypothesis is not a type constructor 3" ^ rocq_constr_to_string hyp in
  
+  (* If we have a hypothesis that we're generating an argument for, 
+     and that argument is a constructor application where all of its args are outputs,
+     then we just need to produce a backtracking check 
 
+     e.g. if we're trying to generate [TFun t1 t2 <- typing G e (TFun t1 t2)], 
+     we have to do:
+     {[
+       v_t1t2 <- typing G e v_t1t2
+       match v_t1t2 with 
+       | TFun t1 t2 => ...
+       | _ => none
+     ]}
+     assuming t1 and t2 are *unfixed* (not an input and not generated yet)   
+     
+     the triple that is output consists of:
+     - the list of pattern-matches that need to be produced 
+       (since TT can handle multiple outputs, each of which may need to be constrained by a pattern)
+     - the updated thing we're generating for (e.g. [typing G e v_t1t2] in the example above), ie the RHS of the let-bind
+     - the updated output list (e.g. [v_t1t2] in the example above), ie the LHS of the let-bind *)
   let handle_constrained_outputs hyp output_vars : schedule_step list * rocq_constr * var list =
     match hyp with
     | DTyCtr (ind, args) ->
@@ -1718,6 +1779,7 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
         let variables = variables_in_hypothesis arg in
         match arg with
         | DCtr (ctr_name,_) when variables <> [] && List.for_all (fun v -> List.mem v output_vars) variables -> 
+          (* [make_up_name_str] ensures that the name produced is indeed fresh *)
           let new_name = make_up_name_str ("v" ^ String.concat "_" (List.map var_to_string variables)) in
           let new_match = S_Match (new_name, rocq_constr_to_pat arg) in
           (Some new_match, DTyVar new_name, Some new_name)
@@ -1727,15 +1789,77 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
       (List.filter_map (fun x -> x) matches, DTyCtr (ind, args'), List.filter_map (fun x -> x) new_outputs)
     | _ -> failwith @@ "Hypothesis is not a type constructor 4" ^ rocq_constr_to_string hyp in
 
+  (* if you have 2 schedules that are equivalent, can we deduplicate them? 
+    Arguments are a list of [schedule_steps] and a block consisting only of unconstrianed generation [u_block] (i.e. calls to [arbitrary]) *)
   let normalize_schedule (steps : schedule_step list) : schedule_step list =
     let rec normalize steps u_block =
       match steps with
-      | [] -> List.sort compare u_block
-      | S_UC (v, src, ps) :: steps -> normalize steps (S_UC (v, src, ps) :: u_block)
-      | step :: steps -> List.sort compare u_block @ step :: normalize steps [] in
+      | [] -> 
+        (* if we run out of steps, we can just sort the [u_block] according to some comparison function (the comparison function on [schedule_step]s) *)
+        List.sort compare u_block
+      | S_UC (v, src, ps) :: steps -> 
+        (* [S_UC] is unconstrained ([arbitrary]) generation -- we stick this into the [u_block] & continue *)
+        normalize steps (S_UC (v, src, ps) :: u_block)
+      | step :: steps -> 
+        (* If we encounter anything that's not [S_UC], the current block of unconstrained generation is over, 
+           so we need to cons it (after sorting) to the head of list of [step]s and continue *)
+        List.sort compare u_block @ step :: normalize steps [] in
     normalize steps []
     in 
 
+  (* Depth-first enumeration of all possible schedules
+      - Segev: in the future, use a stack (worklist) instead of implementing this recursively 
+        since OCaml doesn't like highly-deep recursion 
+        + it doesn't matter whether you're doing BFS or DFS since you're enumerating it 
+        
+      - the list of possible schedules boils down to taking a permutation of list of hypohteses
+      - for me, all I have to do is:
+      1. come up w/ the list of possible permutations of the hypotheses
+      e.g. for TyApp, here are the possible permutations (output is e, the unbound vars are {e1, e2, t1})
+
+      (a.) [typing Γ e1 (TFun 𝜏1 𝜏2), typing Γ e2 𝜏1]
+      (b.) [typing Γ e2 𝜏1, typing Γ e1 (TFun 𝜏1 𝜏2)]
+      
+      Start from the first hypothesis. 
+      + For (a), [t1] and [e1] are unbound, so we're gonna generate the max no. of variables 
+        * [e1] is in an outputtable position (since its not under a constructor)
+        * [t1] is *not* in an ouputtable position (since [t1] is under the [TFun] constructor, [type] is an input mode, and [t2] is an input mode)
+        * This means [t1] has to be generated first arbitrarily 
+
+      We have elaborated this step to:
+      {[
+        t1 <- type                             (this uses the [Arbitrary] for [type])
+        e1 <- typing Γ ? (TFun t1 t2)         (this desugars to [arbitraryST (fun e1 => typing Γ e1 (TFun t1 t2))] )
+      ]}
+
+         + (a) continued: Now that we have generated [t1] and [e1], the next hypothesis is [typing Γ e2 𝜏1] 
+           * [e2] is the only variable that's unbound  
+           * thus, our only option is to do:
+      {[
+        e2 <- typing Γ ? t1       
+      ]}
+           
+      + For (b), the first thing we do is check what are the unbound (not generated & not fixed by inputs) 
+        variables that are constrained by the first hypothesis [typing Γ e2 𝜏1] 
+        * e2 is unbound & can be output (since its in the output mode & not generated yet)
+        * t1 can also be output since its not been generated yet & not under a constructor
+          * Γ is fixed already (bound) b/c its a top-level argument (input) to [aux_arb] 
+        * here we have 3 choices: 
+          1. Arbitrary [t1], ArbitrarySuchThat [e2]
+          2. Arbitrary [e2], ArbitrarySuchThat [t1]
+          3. ArbitrarySuchThat [e2, t1]
+
+      We can then elaborate the next [schedule_step] in our hypothesis permutation (i.e. [typing Γ e1 (TFun 𝜏1 𝜏2)])
+      + Rest of the 2nd permutation is similar logic as the 1st permutation 
+
+      - The code tries to generate as many variables as possible using the list monad:
+        * choose any hypothesis as the first choice (++) choose any variables as the first choice
+          + if we had [H1 a b, H2 a] as our hypotheses, and we generated [H1] and [a b] first, then [H2 a] has to be checked        
+          + if we had generated [H2 a], then we could just do [b <- H1 a b] afte
+
+      - [variables_in_hypotheses] looks under constructor applications
+
+      *)
   let rec dfs (bound_vars : var list) (remaining_vars : var list) 
               (checked_hypotheses : int list) (schedule_so_far : schedule_step list)
               : schedule_step list list =

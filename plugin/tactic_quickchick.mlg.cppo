@@ -1404,6 +1404,7 @@ and best_inductive_schedule_from_instance (ind_instance : rocq_type) (output_var
     inductive_best_valid_schedule (ty_ctr_to_rocq_relation ind_name) [] ds opt
   | _ -> failwith "best_inductive_schedule_from_instance: not a DTyCtr"
 
+(** Unification algorithm is called in [NewUnifyQC.type_to_schedules] *)
 let best_theorem_schedule (thm : rocq_type) : schedule =
   let schedule_matches = NewUnifyQC.type_to_schedules thm None None [] [] D_Thm true in
   let schedules = List.mapi (fun i ((steps, sort), ms, eqs) -> i,List.map (fun (v,p) -> S_Match (v,p)) ms, ((List.map check_eq eqs @ steps), sort)) schedule_matches in
