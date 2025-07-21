@@ -959,6 +959,7 @@ let handle_branch
             
           
           (* Determine which unknown we should generate for, and what unknowns should appear in let-bind expressions *)
+          (* Ernest: what is [letbinds]??? *)
            let (unknown_to_generate_for, letbinds) : unknown * unknown list =
              match need_filtering, unknown_gen with
              (* If there are no [ModePartlyDefs] and one available [unknown_gen], just use that *)
@@ -1139,7 +1140,8 @@ let handle_branch
         (* Instantiate any unknowns that need to be for the mode to work. *)
         instantiate_toplevel_ranges_cont (List.map (fun (x,_t) -> Unknown x) unknowns_for_mode) [] (fun _ranges ->
         
-        (* TODO: add comments here *)
+        (* Determine which unknown we should generate for, and what unknowns should appear in let-bind expressions *)
+        (* Ernest: what is [letbinds]??? *)
         let (unknown_to_generate_for, letbinds) =
           match need_filtering, unknown_gen with
           | None, [(u, dt, i)] -> (u, [])
