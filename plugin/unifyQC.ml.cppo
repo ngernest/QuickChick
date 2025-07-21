@@ -956,11 +956,16 @@ let handle_branch
            (* Instantiate any unknowns that need to be for the mode to work. *)
            instantiate_toplevel_ranges_cont (List.map (fun (x,_t) -> Unknown x) unknowns_for_mode) [] (fun _ranges ->
            (* TODO: Need filtering. *)
-
-           let (unknown_to_generate_for, letbinds) =
+            
+          
+          (* Determine which unknown we should generate for, and what unknowns should appear in let-bind expressions *)
+           let (unknown_to_generate_for, letbinds) : unknown * unknown list =
              match need_filtering, unknown_gen with
+             (* If there are no [ModePartlyDefs] and one available [unknown_gen], just use that *)
              | None, [(u, dt, i)] -> (u, [])
+             (* Corresponds to [ModePartlyDef (eqs, unkws, pat)], so we produce a fresh unknown *)
              | Some (eqs, unks, pat, i), [] -> (unk_provider.next_unknown (), [])
+             (* Produce a fresh unknown, and project the unknowns from [unknown_gen] *)
              | None, udtis -> (unk_provider.next_unknown (),
                                List.rev (List.map (fun (u,_,_) -> u) udtis))
              | _, _ -> failwith "Simultaneous Some/None/1" 
