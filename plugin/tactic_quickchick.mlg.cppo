@@ -539,11 +539,12 @@ let input_pattern_of_rocq_ctr (ctr : rocq_ctr) (ois : output_index list) : const
 let input_patterns_of_rocq_relation ((ind_name, params, rules, overall_type) : rocq_relation) (ois : output_index list) : (constructor * pattern) list =
   List.map (fun ctr -> input_pattern_of_rocq_ctr ctr ois) rules
 
-(*Type of search trees*)
+(* Type of search trees (corresponds to Pattern Tries in the POPL submission) *)
 type pattern_coverage_tree =
   | PatternLeaf of pattern * constructor list 
-    (*the pattern describes the least granular space needed to describe coverage at this point, and the list of rules which provide coverage to it, if any.*)
-  | PatternNode of pattern * constructor list * int list * (constructor * pattern_coverage_tree) list (*The int list represents the path to the current wildcard thats being split*)
+    (* the pattern describes the least granular space needed to describe coverage at this point, and the list of rules which provide coverage to it, if any. *)
+  | PatternNode of pattern * constructor list * int list * (constructor * pattern_coverage_tree) list 
+    (* The int list represents the path to the current wildcard thats being split *)
 
 let print_decomposed_pattern (dec : (constructor * int * int list) list) : unit =
   msg_debug (str "Printing Decomposed Pattern" ++ fnl ());
