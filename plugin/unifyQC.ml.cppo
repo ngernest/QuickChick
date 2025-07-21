@@ -645,6 +645,7 @@ let handle_branch
          (fun rs' -> cont (Ctr (c, rs')))
     | Undef _dt ->
        (* For undefined, we need to instantiate the parent by processing its checks. *)
+       (* Ernest: we can just inline process_checks with an update to the [umap] which adds the binding [x |-> Fixed] *)
          process_checks ex_bind parent false instantiate_existential_method
            (fun x -> cont (Unknown x))
     | Unknown u ->
