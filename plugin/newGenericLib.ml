@@ -1862,11 +1862,10 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
   let rec dfs (bound_vars : var list) (remaining_vars : var list) 
               (checked_hypotheses : int list) (schedule_so_far : schedule_step list)
               : schedule_step list list =
-    (* msg_debug (str "Bound Vars: " ++ str (String.concat ", " (List.map var_to_string bound_vars)) ++ fnl ());
-    msg_debug (str "Remaining Vars: " ++ str (String.concat ", " (List.map var_to_string remaining_vars)) ++ fnl ()); *)
     begin match remaining_vars with
     | [] -> [List.rev schedule_so_far]
     | _ ->
+      (* Each unconstrained path is a choice to instantiate one of the unbound variables arbitrarily *)
       let unconstrained_prod_paths = remaining_vars >>=* (fun v remaining_vars' ->
         let (new_checked_idxs,new_checked_hyps) = List.split @@ collect_check_steps (v :: bound_vars) checked_hypotheses sorted_hypotheses in
         let ty = try List.assoc v variables with Not_found -> failwith "How? All variables start typed" in
@@ -1881,6 +1880,9 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
         dfs (v :: bound_vars) remaining_vars' (new_checked_idxs @ checked_hypotheses) (checks @ unconstrained_prod_step :: schedule_so_far))
       in
       let remaining_hypotheses = filter_mapi (fun i hyp -> if List.mem i checked_hypotheses then None else Some (i, hyp)) sorted_hypotheses in
+
+      (* Each constrained path is a choice to satisfy a hypothesis and generate one or more variables that it constrains with [arbitrarySuchThat] 
+         - In a constrained path, we always output as many variables as possible. *)
       let constrained_prod_paths = remaining_hypotheses >>=: (fun (i, (hyp, hyp_vars, pol)) ->
         guard pol >>=: fun _ -> (* Negated hypotheses cannot be generated such that, only checked *)
         guard (not (List.mem i checked_hypotheses)) >>=: fun _ -> 
@@ -1896,7 +1898,8 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
         let typed_outputs = List.map (fun v -> (v, try List.assoc v variables with Not_found -> DHole)) new_outputs in
         let constraining_relation = 
           (match hyp' with
-          | DTyCtr (ind, args) when is_rec_call output_vars hyp -> (*Should actually check if whole term equal up to alpha and that outputs match and typeclass derived match*)
+          | DTyCtr (ind, args) when is_rec_call output_vars hyp -> 
+            (* Should actually check if whole term equal up to alpha and that outputs match and typeclass derived match *)
             let input_args = List.filteri (fun i _ -> not (List.mem i (snd rec_call))) args in
             SrcRec (var_of_string "rec", input_args)
           | DTyCtr (_, _) ->
