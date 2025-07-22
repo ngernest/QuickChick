@@ -1652,7 +1652,6 @@ let (>>:) (l : 'a list) (next : 'b list) : 'b list =
   - A list of possible schedule_step lists (a schedule is a [schedule_step list] plus a separate the conclusion)
     + The conclusion of a schedule is a [schedule_sort] *)
 let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_constr list) (fixed : var list) (rec_call : ty_ctr * int list) (ds : derive_sort) : schedule_step list list =
-  (* Feedback.msg_debug (str (ty_ctr_to_string (fst rec_call)) ++ str " " ++ str (String.concat " " (List.map string_of_int (snd rec_call))) ++ fnl ()); *)
   
   (* If we have negation, then we just collapse all the negations to a single positive/negative
      - e.g. double negative is positive *)
@@ -1876,14 +1875,12 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
           | DTyCtr (ind, args) when ty_ctr_eq ind (fst rec_call) -> SrcRec (var_of_string "rec", args)
           | DTyCtr (ind, args) -> SrcNonrec ty
           | DTyParam param -> SrcNonrec ty
-          (* | DTyParam param -> SrcNonrec ty TODO: Will need to add a typeclass constraint for this *)
           | _ -> failwith ("Variable type is not a type constructor: " ^ rocq_constr_to_string ty ^ " " ^ (ty_ctr_to_string (fst rec_call)))) in
         let unconstrained_prod_step = S_UC (v, src, prod_sort) in
         let checks = List.rev @@ List.map (fun (src,pol) -> S_Check (src,pol)) new_checked_hyps in
         dfs (v :: bound_vars) remaining_vars' (new_checked_idxs @ checked_hypotheses) (checks @ unconstrained_prod_step :: schedule_so_far))
       in
       let remaining_hypotheses = filter_mapi (fun i hyp -> if List.mem i checked_hypotheses then None else Some (i, hyp)) sorted_hypotheses in
-      (* msg_debug (str "Remaining Hypotheses: " ++ str (String.concat ", " (List.map (fun (i, h) -> string_of_int i) remaining_hypotheses)) ++ fnl ()); *)
       let constrained_prod_paths = remaining_hypotheses >>=: (fun (i, (hyp, hyp_vars, pol)) ->
         guard pol >>=: fun _ -> (* Negated hypotheses cannot be generated such that, only checked *)
         guard (not (List.mem i checked_hypotheses)) >>=: fun _ -> 
@@ -1911,7 +1908,6 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
         let checks = List.rev @@ List.map (fun (src,pol) -> S_Check (src,pol)) new_checked_hyps in
         dfs (output_vars @ bound_vars) remaining_vars' (i :: new_checked_idxs @ checked_hypotheses) (checks @ new_matches @ constrained_prod_step :: schedule_so_far)))
       in 
-      (* msg_debug (str "Unconstrained: " ++ int (List.length unconstrained_prod_paths) ++ str " Constrained: " ++ int (List.length constrained_prod_paths) ++ fnl ()); *)
       constrained_prod_paths @ unconstrained_prod_paths
 
     end
@@ -1923,14 +1919,6 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
   let schedules_normalized = List.map normalize_schedule schedules in
   let schedules_sorted_deduplicated = List.sort_uniq compare schedules_normalized in
   let schedules_sorted_length = List.sort (fun s1 s2 -> List.length s1 - List.length s2) schedules_sorted_deduplicated in
-  (* let compare_checks_then_length (s1 : schedule_step list) (s2 : schedule_step list) : int =
-    let count_checks (s : schedule_step list) : int =
-      List.length (List.filter (function S_Check _ -> true | _ -> false) s) in
-    let checks1 = count_checks s1 in
-    let checks2 = count_checks s2 in
-    if checks1 = checks2 then List.length s1 - List.length s2 else checks1 - checks2 in
-  let schedules_sorted = List.sort compare_checks_then_length schedules in *)
-  (*print schedules*)
   schedules_sorted_length
 
 
