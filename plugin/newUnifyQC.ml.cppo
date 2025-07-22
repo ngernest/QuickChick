@@ -364,6 +364,7 @@ let rec correct_variables (umap : umap) (scd : schedule_step list) : schedule_st
 
 (* GGG unification algorithm is caleld here
    - [result_vars] contains the list of arguments to an inductive relation
+   - you only have to worry about [ind_name] and [ctr_name] for theorems 
 *)
 let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name : ty_ctr option) (result_vars : (var * rocq_constr) list) (output_vars : var list) (ds : derive_sort) opt : (schedule * (var * pat) list * (var * var) list) list = 
 
