@@ -1742,7 +1742,7 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
     match hyp with
     | DTyCtr (ind, args) ->
       not @@ List.exists (fun arg ->
-        let rec check b arg =
+        let rec check (b : bool) (arg : rocq_type) : bool =
           match arg with
           | DCtr (ctr_name, args) -> List.exists (check b) args
           | DTyCtr (ind, args) -> List.exists (check b) args
@@ -1771,7 +1771,7 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
        (since TT can handle multiple outputs, each of which may need to be constrained by a pattern)
      - the updated thing we're generating for (e.g. [typing G e v_t1t2] in the example above), ie the RHS of the let-bind
      - the updated output list (e.g. [v_t1t2] in the example above), ie the LHS of the let-bind *)
-  let handle_constrained_outputs hyp output_vars : schedule_step list * rocq_constr * var list =
+  let handle_constrained_outputs (hyp : rocq_type) (output_vars : var list) : schedule_step list * rocq_constr * var list =
     match hyp with
     | DTyCtr (ind, args) ->
       let (matches, args', new_outputs) = split3 (List.map (fun arg -> 
