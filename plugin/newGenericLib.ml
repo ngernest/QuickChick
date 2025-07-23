@@ -1616,7 +1616,7 @@ let rec list_bind (l : 'a list) (f : 'a -> 'b list) : 'b list =
 let (>>=:) = list_bind
 
 let para_list_bind (l : 'a list) (f : 'a -> 'a list -> 'b list) : 'b list =
-  let rec aux before l =
+  let rec aux (before : 'a list) (l : 'a list) : 'b list =
     match l with
     | [] -> []
     | now :: after -> f now (List.rev before @ after) @ aux (now :: before) after in
