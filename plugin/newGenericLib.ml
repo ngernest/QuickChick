@@ -1706,12 +1706,13 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
   let collect_check_steps (bound_vars : var list) (checked_hypotheses : int list) (sorted_hypotheses : (rocq_constr * var list * bool) list) : (int * (source * bool)) list =
     filter_mapi (fun i (h, vs, polarity) -> 
       if not (List.mem i checked_hypotheses) && List.for_all (fun v -> List.mem v bound_vars) vs then 
-        let src = if ds = D_Check && snd rec_call = [] then
-          (match h with
-          | DTyCtr (ind, args) when ty_ctr_eq (fst rec_call) ind -> SrcRec (var_of_string "rec", args)
-          | DTyCtr (ind, args) -> SrcNonrec h
-          | _ -> failwith @@ "Hypothesis is not a type constructor 2" ^ rocq_constr_to_string h) 
-        else SrcNonrec h in
+        let src = 
+          if ds = D_Check && snd rec_call = [] then
+            (match h with
+            | DTyCtr (ind, args) when ty_ctr_eq (fst rec_call) ind -> SrcRec (var_of_string "rec", args)
+            | DTyCtr (ind, args) -> SrcNonrec h
+            | _ -> failwith @@ "Hypothesis is not a type constructor 2" ^ rocq_constr_to_string h) 
+          else SrcNonrec h in
         Some (i, (src, polarity)) 
       else None) sorted_hypotheses 
   in
@@ -2093,6 +2094,8 @@ module ScheduleExamples = struct
       S_ST ([(var "t1", DTyCtr (ty_ctr "type", []))], SrcNonrec (DTyCtr (ty_ctr "typing", [_G; _e2; DTyVar (var "t1")])), PS_E);
       S_Check (SrcRec ((var "rec"), [_G; _e1; DTyCtr (ty_ctr "Arrow", [DTyVar (var "t1"); _t2])]), true)
     ], CheckerSchedule
+
+
 
   let check_typing_inductive_schedule : inductive_schedule =
     let list_ty = MTyCtr (ty_ctr "list", [MTyCtr (ty_ctr "type", [])]) in

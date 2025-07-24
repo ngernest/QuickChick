@@ -366,7 +366,7 @@ let rec correct_variables (umap : umap) (scd : schedule_step list) : schedule_st
    - [result_vars] contains the list of arguments to an inductive relation
    - you only have to worry about [ind_name] and [ctr_name] for theorems 
 *)
-let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name : ty_ctr option) (result_vars : (var * rocq_constr) list) (output_vars : var list) (ds : derive_sort) opt : (schedule * (var * pat) list * (var * var) list) list = 
+let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name : ty_ctr option) (result_vars : (var * rocq_constr) list) (output_vars : var list) (ds : derive_sort) (opt : bool) : (schedule * (var * pat) list * (var * var) list) list = 
 
   (* extract the universally-quantified variables, hyps and conclusion for the type (inductive relation) we're targeting *)
   let vars, hyps, concl = type_info typ in
@@ -381,10 +381,7 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
   (* Starting with an empty [umap], go over all the arguments to the inductive, 
      if the variable is one of the outputs (in [output_vars]), then we set it to [Undef ty],
       otherwise its an input, so we set its range to be [Fixed]
-     * [output_vars] is a subset of [result_vars]
-     
-     
-     *)
+     - [output_vars] is a subset of [result_vars] *)
   let init_umap' : umap = List.fold_left (fun umap (v, ty) ->
     if List.mem v output_vars then 
       UM.add v (Undef ty) umap 
