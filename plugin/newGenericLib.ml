@@ -2089,12 +2089,13 @@ module ScheduleExamples = struct
       S_Check (SrcRec ((var "rec"),[DCtr (ctr "cons",[DHole; _t1; _G]); _e; _t2]), true)
     ], CheckerSchedule
 
-  let check_typing_TApp _G _e1 _e2 _t2 =
+  let check_typing_TApp _G _e1 _e2 _t2 : schedule =
     [
       S_ST ([(var "t1", DTyCtr (ty_ctr "type", []))], SrcNonrec (DTyCtr (ty_ctr "typing", [_G; _e2; DTyVar (var "t1")])), PS_E);
       S_Check (SrcRec ((var "rec"), [_G; _e1; DTyCtr (ty_ctr "Arrow", [DTyVar (var "t1"); _t2])]), true)
     ], CheckerSchedule
 
+  
 
 
   let check_typing_inductive_schedule : inductive_schedule =
@@ -2179,6 +2180,7 @@ module ScheduleExamples = struct
   | BindLater : forall tau tau' x env,
     bind env x tau -> bind (tau' :: env) (S x) tau.
   *)
+
 
 
   let shcd_bindNow_gen_ioo _tau _env =
