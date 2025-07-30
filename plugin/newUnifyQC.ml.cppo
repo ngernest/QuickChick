@@ -293,10 +293,24 @@ and evaluate_var (umap : umap) (v : unknown) : rocq_constr option =
     sequenceM (evaluate_range umap) args >>= fun args' ->
       Some (DCtr (c, args'))
 
+(* Figures out the appropriate schedule_sort given a [derive_sort] *)
 let get_schedule_sort (concl : rocq_constr) (output_vars : unknown list) (ctr_name : ty_ctr option) (umap : umap) (ds : derive_sort) (opt : bool) : schedule_sort option =
   match ds with
   | D_Check -> Some CheckerSchedule 
-  | D_Thm -> Some (TheoremSchedule (concl, true))
+  | D_Thm -> 
+    (* Theorems need to conclude with a final check to the [concl] (conclusion)
+       - If [concl] is true and the bool is [true], then that means its a Rocq type (the type of an inductive),
+         which needs to be checked (i.e. we can find the checker by identifying the [DecOpt] instance)
+        - If the bool is false, it means we're curently dealing with a function call that returns an option bool 
+          (a concrete checker, so we don't need to identify the [DecOpt] instance)
+        - Note: in Segev's work, we don't derive instances of typeclass 
+          (we just derive actual generator/checker function definitions)
+           + Can you define mutually recursive typeclass instances in Lean? if not, then we'll have to switch 
+            to deriving concrete functions instead 
+           (we need mutually recursive typeclass instances becuase checkers may call enumerators and vice vesra,
+           and in general, multiple modes can depend on each other)
+    *)
+    Some (TheoremSchedule (concl, true))
   | D_Gen | D_Enum ->
     Error.msg_debug (str ("SCHEDSORT output_vars " ^ String.concat ", " (List.map Unknown.to_string output_vars)) ++ fnl ());
     sequenceM (evaluate_var umap) output_vars >>= fun output_values ->
@@ -367,7 +381,9 @@ let rec correct_variables (umap : umap) (scd : schedule_step list) : schedule_st
 
 (* GGG unification algorithm is caleld here
    - [result_vars] contains the list of arguments to an inductive relation
-   - you only have to worry about [ind_name] and [ctr_name] for theorems 
+   - For theorems, [ind_name], [ctr_name] are [None], [result_vars] and [output_vars] are empty lists
+    + [typ] is just the Rocq type of the theorem
+   - [opt] is whether its a constrained generator or not (i.e. whether the producer returns an `Option a`)
 *)
 let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name : ty_ctr option) (result_vars : (var * rocq_constr) list) (output_vars : var list) (ds : derive_sort) (opt : bool) : (schedule * (var * pat) list * (var * var) list) list = 
 
@@ -384,7 +400,9 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
   (* Starting with an empty [umap], go over all the arguments to the inductive, 
      if the variable is one of the outputs (in [output_vars]), then we set it to [Undef ty],
       otherwise its an input, so we set its range to be [Fixed]
-     - [output_vars] is a subset of [result_vars] *)
+     - [output_vars] is a subset of [result_vars] 
+     
+     - For theorems, [init_umap'] is the empty [umap]  since [output_vars] is the empty list *)
   let init_umap' : umap = List.fold_left (fun umap (v, ty) ->
     if List.mem v output_vars then 
       UM.add v (Undef ty) umap 
@@ -394,7 +412,8 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
   (* Then we fold over the universally-quantified variables of the constructor and add them to the umap we've built so far 
      + If a variable is a [type], then its a (Type) parameter (e.g. [a] in [List a])
      + otherwise its [Undef] (we don't know if its an input or output)
-  *)
+
+    + For theorems, this sets all the variables in [vars] to undefined in the resultant [umap] *)
   let init_umap = List.fold_left (fun umap (v, ty) -> if is_Type ty then UM.add v (Parameter v) umap else UM.add v (Undef ty) umap) init_umap' vars in
   
   (* Takes in:
@@ -425,6 +444,7 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
 
   (* Convert the inductive args (result_vars) to [ranges] 
      - if is a type its a parameter, otherwise its an unknown
+     - for theorems, [result_vars] is the empty list, so [result_ranges] is also the empty list
   *)
   let result_ranges = List.map (fun (v, ty) -> 
     if is_Type ty then 
@@ -440,9 +460,16 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
       - this uses the [init_umap] we defined earlier (so all the names are already logged in the [umap] for unificaiton purposes) *)
   let state = 
       match ds, concl with
-      | D_Thm, _ -> Some (init_umap, EqSet.empty, [])
+      | D_Thm, _ -> 
+        (* For theorems, we just return the initial [umap], with no equalities and no pattern matches 
+           - Unification only occurs when we need to line up the arguments to a constructor's conclusion with the top-level args to the generator 
+             (i.e. the args to the inductive relation)
+              + top-level means the input for a genreator for an inductive (i.e. the arguments to [aux_arb])
+           - However, for a theorem, there is no top-level generator (its an orphan sub-generator), so no unification occurs for a theorem *)
+        Some (init_umap, EqSet.empty, [])
       | _, DTyCtr (c, args) ->
         sequenceM convert_to_range args >>= fun args_ranges ->
+        (* [args_ranges] is the constructor args, [result_ranges] is the top-level args *)
         unify_range_lists args_ranges result_ranges init_umap EqSet.empty []
       | _, _ -> failwith "Conclusion is not a TyCtr"
   in
@@ -464,11 +491,14 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
   let is_fixed umap v = is_range_fixed umap (Unknown v) in
 
   match state with
+  (* the [eqs] and [matches] are analogous to the [equalities] and [patterns] fields in the GGG Unification Monad *)
   | Some (umap, eqs, matches) ->
     (match get_schedule_sort concl (if opt then output_vars else List.map fst vars) ctr_name umap ds opt with
     | Some sort -> 
+      (* Checks which variables are fixed so that we can supply them to [possible_schedules] as the [fixed_vars] arg *)
       let fixed_vars = List.filter_map (fun (v,_) -> if is_fixed umap v then Some v else None) vars in
       let eq_checks = EqSet.elements eqs in
+      (* for theorems, we have a nonsense name *)
       let rec_name = match ind_name with Some n -> n | _ -> ty_ctr_of_string "nonsense" in
       Error.msg_debug (str ("Fixed vars: " ^ String.concat ", " (List.map var_to_string fixed_vars)) ++ fnl ());
 

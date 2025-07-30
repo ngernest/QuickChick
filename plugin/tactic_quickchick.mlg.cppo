@@ -1404,7 +1404,9 @@ and best_inductive_schedule_from_instance (ind_instance : rocq_type) (output_var
     inductive_best_valid_schedule (ty_ctr_to_rocq_relation ind_name) [] ds opt
   | _ -> failwith "best_inductive_schedule_from_instance: not a DTyCtr"
 
-(** Unification algorithm is called in [NewUnifyQC.type_to_schedules] *)
+(** Unification algorithm is called in [NewUnifyQC.type_to_schedules]
+    - This calls [type_to_schedules] with a lot of [None]s and empty lists
+*)
 let best_theorem_schedule (thm : rocq_type) : schedule =
   let schedule_matches = NewUnifyQC.type_to_schedules thm None None [] [] D_Thm true in
   let schedules = List.mapi (fun i ((steps, sort), ms, eqs) -> i,List.map (fun (v,p) -> S_Match (v,p)) ms, ((List.map check_eq eqs @ steps), sort)) schedule_matches in
@@ -1702,6 +1704,9 @@ let rec take_while (p : 'a -> bool) (l : 'a list) : ('a list) * ('a list) =
     (a :: start, rest)
   | _ -> ([], l)
 
+(* Use Tarjan's algorithm to create a topological sort of the graph of dependencies for all inductives used in a schedule 
+   - note: I will also need this somehow  (talk to Segev in a follow-up meeting)
+*)
 let tarjan_schedules_by_name (schedules : string list) inductive_dependency_map
     : (inductive_schedule * derive_sort * bool) list list =
   let index = ref 0 in

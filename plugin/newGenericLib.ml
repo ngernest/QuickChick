@@ -1645,6 +1645,7 @@ let (>>:) (l : 'a list) (next : 'b list) : 'b list =
    - a list of [variables] & their types
    - list of hypotheses about those varaibles 
    - already [fixed] vars (e.g. inputs to the inductive relation)
+     + Note: for a theorem, there are no fixed variables and there are no recursive calls 
    - [rec_call] represents what a recursive call looks like
      + [ty_ctr] matches & [int list] represents the mode we're generating for 
      + (the int list is a list of output indices, the indices of the outputs to the inductive)
@@ -1922,6 +1923,7 @@ let possible_schedules (variables : (var * rocq_type) list) (hypotheses : rocq_c
   let (new_checked_idxs, new_checked_hyps) = List.split @@ collect_check_steps fixed [] sorted_hypotheses in
   let first_checks = List.rev @@ List.map (fun (src,pol) -> S_Check (src,pol)) new_checked_hyps in
   let schedules = dfs fixed remaining_vars new_checked_idxs first_checks in
+  (* TODO: to get a naive schedule, just take the head of the list [schedules] -- don't modify [dfs] *)
   let schedules_normalized = List.map normalize_schedule schedules in
   let schedules_sorted_deduplicated = List.sort_uniq compare schedules_normalized in
   let schedules_sorted_length = List.sort (fun s1 s2 -> List.length s1 - List.length s2) schedules_sorted_deduplicated in
@@ -1940,6 +1942,13 @@ module ScheduleExamples = struct
   let var = var_of_string
   let ctr = constructor_of_string
   let ty_ctr = ty_ctr_of_string
+
+  (* TODO: to test [possible_schedules], just try it out on a theorem schedules
+    - [CheckerSchedule] check if a prop is satisfied
+    - [ProducerSchedule] produces values
+    - [TheoremSchedule] generates a whole bunch of variables and uses them in a final check 
+      (combining a producer with a checker)
+  *)
 
   (* forall Gamma e tau e', typing' Gamma e tau -> bigstep' e e' -> typing' Gamma e' tau*)
   let thm_schedule = 
