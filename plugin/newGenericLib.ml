@@ -967,6 +967,7 @@ let c_backtrack (ds : derive_sort) (is_constrained : bool) (first : constr_expr)
   | D_Check, _ -> c_app (cInject "QuickChick.Decidability.checker_backtrack") [c_list c_hole @@ ms] (* ms : list (unit -> option A)*)
   | D_Thm, _ -> failwith "Backtrack not supported for theorems."
 
+(* Compiles a [mexp] to a Rocq expression *)
 let rec mexp_to_constr_expr (me : mexp) (ds : derive_sort) : constr_expr =
   match me with
   | MBind (ms, m, vs, k) -> c_bind ms ds (mexp_to_constr_expr m ds) vs (mexp_to_constr_expr k ds)
@@ -1134,6 +1135,7 @@ let m_theorem_check_fuel mfuel =
   (* aux steps finally    *)
 
 (* Rewrite the above schedule_to_mexp as a fold*)
+(* This is the function which compiels schedule steps to `mexp` (monadic expression) *)
 let schedule_to_mexp ((steps, s_sort) : schedule) (mfuel : mexp) (def_fuel : mexp) : mexp =
   let finally = match s_sort with
     | ProducerSchedule (is_constrained, ps, concl_outputs) -> MRet ((if is_constrained then m_Some MHole else (fun x -> x)) @@ product_free_rocq_type_to_mexp concl_outputs)
