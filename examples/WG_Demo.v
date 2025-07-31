@@ -12,6 +12,22 @@ Derive Show for type.
 #[export] Instance dec_type (t1 t2 : type) : Dec (t1 = t2).
 Proof. dec_eq. Defined.
 
+Inductive sorted_le : list nat -> Prop :=
+| sorted_nil :
+    sorted_le []
+| sorted_singleton :
+    forall x,
+      sorted_le [x]
+| sorted_cons :
+    forall x y l,
+      x <= y ->
+      sorted_le (y :: l) ->
+      sorted_le (x :: y :: l).
+
+Derive Inductive Schedule sorted_le 0 derive "Gen" opt "true".
+
+Sample (GenSizedSuchThat_sorted_le_O 5). Check true.
+
 Inductive term :=
 | Var   : nat -> term
 | Bool  : bool -> term
@@ -22,14 +38,18 @@ Derive Show for term.
 #[export] Instance dec_expr (e1 e2 : term) : Dec (e1 = e2).
 Proof. dec_eq. Defined.
 
-Inductive Ctx := Empty | Bind (x : type) (c : Ctx).
+(*Inductive Ctx A := Empty | Bind  (c : Ctx).
 
-Derive Show for Ctx.
+Derive Show for Ctx.*)
 
-Fixpoint lookup (Γ : Ctx) (n : nat) : option type :=
+(*Inductive list (A : Type) :=
+| nil : list A
+| cons : forall (a : A) (l : list A), list A.*)
+
+Fixpoint lookup (Γ : list type) (n : nat) : option type :=
   match n, Γ with
-  | 0   , Bind τ _  => Some τ
-  | S n', Bind _ Γ' => lookup Γ' n'
+  | 0   , @cons _ τ _  => Some τ
+  | S n', @cons _ _ Γ' => lookup Γ' n'
   | _, _ => None
   end.
 
@@ -39,13 +59,13 @@ Definition shift  (d: Z) (ex: term) : term :=
         | Var n =>
             (*! *)
             if n <? Z.to_nat c then Var n
-            else Var (Z.to_nat ((Z.of_nat n) + d))
+            else Var (Z.to_nat ((Z.of_nat n) + d))  
             (*!! shift_var_none *)
             (*!
             Var n
             *)
             (*!! shift_var_all *)
-            (*!             
+            (*!            
             Var (Z.to_nat (Z.of_nat n + d))
             *)
             (*!! shift_var_leq *)
@@ -59,13 +79,15 @@ Definition shift  (d: Z) (ex: term) : term :=
             (*! *)
             Abs t (go (1 + c)%Z e)
             (*!! shift_abs_no_incr *)
-            (*!
-            Abs t (go c e)
-            *)
+            (*! *)
+           (* Abs t (go c e)*)
+          (*  *)
         | (App e1 e2) => 
             App (go c e1) (go c e2)
         end in
     go 0%Z ex.
+
+Import Lia.
 
 Fixpoint subst  (n: nat) (s: term) (e: term) : term :=
     match n, s, e with 
@@ -84,9 +106,9 @@ Fixpoint subst  (n: nat) (s: term) (e: term) : term :=
     | _, _, (Bool b) => Bool b
     | n, s, (Abs t e) =>
         (*! *)
-(*        Abs t (subst (n + 1) (shift 1 s) e)  *)
+        Abs t (subst (n + 1) (shift 1 s) e)  
         (*!! subst_abs_no_shift *)
-        Abs t (subst (n + 1) s e)
+        (*Abs t (subst (n + 1) s e)*)
         (*!! subst_abs_no_incr *)
         (*!
         Abs t (subst n (shift 1 s) e)
@@ -107,6 +129,15 @@ Definition substTop (s: term) (e: term) : term :=
     *)
 .
 
+
+Derive GenSized for type.
+Derive GenSized for term.
+
+(*Theorem shift_unshift : forall s n, shift (-n) (shift n s) = s.
+Proof.  Locate opp.
+
+  quickchick.*)
+
 Fixpoint pstep  (e: term) : option term :=
     match e with
     | Abs t e => 
@@ -125,12 +156,35 @@ Fixpoint pstep  (e: term) : option term :=
     | Bool b => Some (Bool b)
     end.
 
-Inductive bind : Ctx -> nat -> type -> Prop :=
-| Now   : forall τ Γ, bind (Bind τ Γ) 0 τ
-| Later : forall τ τ' Γ x ,
-    bind Γ x τ -> bind (Bind τ' Γ) (S x) τ.
+Inductive bigstep : term -> term -> Prop :=
+| bs_Abs t e e' : bigstep e e' -> bigstep (Abs t e) (Abs t e')
+| bs_AppAbs t e1 e2 e1' e2' es :
+  bigstep e1 e1' ->
+  bigstep e2 e2' ->
+  substTop e2' e1' = es ->
+  bigstep (App (Abs t e1) e2) es
+| bs_AppApp a1 a2 a' e e' :
+  bigstep (App a1 a2) a' ->
+  bigstep e e' ->
+  bigstep (App (App a1 a2) e) (App a' e')
+| bs_AppVar v e e' :
+  bigstep e e' ->
+  bigstep (App (Var v) e) (App (Var v) e')
+| bs_Var v : bigstep (Var v) (Var v)
+| bs_Bool b : bigstep (Bool b) (Bool b)
+.
 
-Inductive typing : Ctx -> term -> type -> Prop :=
+Inductive bind {A : Type} : list A -> nat -> A -> Prop :=
+| Now   : forall τ Γ, bind (@cons _ τ Γ) 0 τ
+| Later : forall τ τ' Γ x ,
+    bind Γ x τ -> bind (@cons _ τ' Γ) (S x) τ.
+QuickChickDebug Debug On.
+
+Derive GenSized for list.
+Derive GenSized for type.
+(*Derive Inductive Schedule bind 1 2 derive "Gen" opt "true".*)
+
+Inductive typing : list type -> term -> type -> Prop :=
 | TyVar :
     forall Γ x τ,
       bind Γ x τ ->
@@ -140,7 +194,7 @@ Inductive typing : Ctx -> term -> type -> Prop :=
       typing Γ (Bool b) TBool
 | TyAbs :
     forall Γ e τ1 τ2,
-      typing (Bind τ1 Γ) e τ2 ->
+      typing (cons τ1 Γ) e τ2 ->
       typing Γ (Abs τ1 e) (TFun τ1 τ2)
 | TyApp :
     forall Γ e1 e2 τ1 τ2,
@@ -148,35 +202,125 @@ Inductive typing : Ctx -> term -> type -> Prop :=
       typing Γ e2 τ1 ->
       typing Γ (App e1 e2) τ2.
 
-Theorem preservation : forall e τ e',
-    typing Empty e τ -> pstep e = Some e' ->
-    typing Empty e' τ.
-Proof. quickchick.
-  schedules. valid_schedules. 
+#[export] Instance Dec_Eq_type : Dec_Eq type. dec_eq. Defined.
+
+Derive Valid Schedules typing 2 consnum 3 derive "Check".
+
+Derive Inductive Schedule typing derive "Check" opt "true".
+
+Inductive isSome A : option A -> Prop :=
+| isSomeSome a : isSome A (Some a).
+
+Derive Inductive Schedule isSome 1 derive "Gen" opt "true".
+
+Theorem checker_backtrack_one : forall p, checker_backtrack [p] = p tt.
+Proof. intros. unfold checker_backtrack. destruct (p tt); auto. destruct b; auto. Qed.
+
+Derive GenSized for option.
+Derive GenSized for type.
+Derive GenSized for term.
+#[export] Instance Dec_Eq_option A `{Dec_Eq A} : Dec_Eq (option A).
+Proof. dec_eq. Defined.
+
+#[export] Instance Dec_Eq_term : Dec_Eq term.
+Proof. dec_eq. Defined.
+
+(*#[export] Instance Dec_eq_Dec_Eq A : (forall (x y : A), Dec (x = y)) -> Dec_Eq A.
+Proof. intros. dec_eq. Defined.*)
+
+Class Size (A : Type) : Type := { size : A -> nat }.
+
+Instance SizeType : Size type :=
+  {size := (fix aux t :=
+              match t with
+              | TBool => 1
+              | TFun i o => S (max (aux i) (aux o))
+              end)}.
+
+Instance SizeTerm : Size term :=
+  {size := (fix aux e :=
+              match e with
+              | Var _ => 1
+              | Bool _ => 1
+              | Abs t e' => S (aux e')
+              | App e1 e2 => S (max (aux e1) (aux e2))
+              end)}.
+
+Instance SizeEnv : Size (list type) :=
+  {size := @length _}.
+
+Theorem preservation : forall g e τ e',
+    typing g e τ -> pstep e = Some e' ->
+    typing g e' τ.
+Proof. QuickChickDebug Debug Off.
+
+       Extract Constant defNumTests => "10".
+       valid_schedules. quickchick_idx 0.
+       Extract Constant defNumTests => "100000".
+       QuickChick (sized (fun size' : nat =>
+forAllMaybeChecker (GenSizedSuchThat_typing_OOO size')
+  (fun '(g, e, τ) =>
+   forAllMaybeChecker (GenSizedSuchThat_eq_IIO size' (option term) (pstep e) GenSizedoption (Dec_Eq_option term))
+     (fun ve'1945_ : option term =>
+      match ve'1945_ with
+      | Some e' =>
+          (collect (size e')
+          match DecOpt_typing_III (3 * size') g e' τ with
+          | Some true =>  checker (Some true)
+          | Some false => checker (Some false)
+          | None => checker tt
+          end)
+      | None => checker tt
+      end)) ) ).
+Extract Constant defNumTests => "10".
 
 
 
+quickchick_idx 1.
+       Extract Constant defNumTests => "100000".
+QuickChick (sized (fun size' : nat =>
+forAllChecker (arbitrarySized size')
+  (fun g : list type =>
+   forAllMaybeChecker (GenSizedSuchThat_typing_IOO size' g)
+     (fun '(e, τ) =>
+      forAllMaybeChecker (GenSizedSuchThat_eq_IIO size' (option term) (pstep e) GenSizedoption (Dec_Eq_option term))
+        (fun ve'3991_ : option term =>
+         match ve'3991_ with
+         | Some e' =>
+             collect (size e')
+            ( match DecOpt_typing_III (3 * size') g e' τ with
+             | Some true => checker (Some true)
+             | Some false => checker (Some false)
+             | None => checker tt
+             end)
+         | None => checker tt
+         end))))).
 
 
 
+try_all_quickchick_schedules. quickchick_idx 40.
+                                                                  
+  schedules. valid_schedules. Abort.
 
 
+Theorem preservation' : forall g e τ e',
+    typing g e τ -> bigstep e e' ->
+    typing g e' τ. valid_schedules. quickchick_idx 0.
+   
+                   
+                   QuickChick (sized (fun size : nat =>
+                                 let double {A : Set} (g : nat -> G (option A)) := bindGen (g size) (fun r =>  match r with | None => g (2 * (size + 1)) | _ => returnGen r end) in 
+forAllMaybeChecker (double (fun size => GenSizedSuchThat_typing_OOO size) )
+  (fun '(g, e, τ) =>
+   forAllMaybeChecker ( double (fun size => GenSizedSuchThat_bigstep_IO ( size)  e))
+     (fun e' : term =>
+      match DecOpt_typing_III (2 * (size + 1)) g e' τ with
+      | Some true => checker (Some true)
+      | Some false => checker (Some false)
+      | None => checker false
+      end))) ).
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Derive Density typing 1 derive "Gen".                   
+                   
+    
+                   

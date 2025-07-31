@@ -448,7 +448,7 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
   *)
   let result_ranges = List.map (fun (v, ty) -> 
     if is_Type ty then 
-      (Feedback.msg_notice (str ("Type variable: " ^ var_to_string v));
+      (Error.msg_debug (str ("Type variable: " ^ var_to_string v));
       Parameter v) else (Unknown v)) result_vars in
 
   Error.msg_debug (str ("Result ranges: " ^ String.concat ", " (List.map range_to_string result_ranges)) ++ fnl ());
@@ -489,6 +489,12 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
   let output_indices = filter_mapi (fun i (v,_) -> if List.mem v output_vars then Some i else None) result_vars in
 
   let is_fixed umap v = is_range_fixed umap (Unknown v) in
+
+  let rec take n lst = 
+    match lst with
+    | [] -> []
+    | x :: xs -> if n <= 0 then [] else x :: take (n - 1) xs in
+    
 
   match state with
   (* the [eqs] and [matches] are analogous to the [equalities] and [patterns] fields in the GGG Unification Monad *)
