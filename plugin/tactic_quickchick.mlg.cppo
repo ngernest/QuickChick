@@ -1116,6 +1116,9 @@ let producer_sort_to_derive_sort (ps : producer_sort) : derive_sort =
   | PS_E -> D_Enum
   | PS_G -> D_Gen
 
+(* Converts an equality [u1 = u2] into an [S_Check] schedule step 
+   - Note that [DHole] is here to represent a hole so that Rocq's elaborator can figure out 
+     what the type of the args should be *)
 let check_eq (u1,u2) = S_Check (SrcNonrec (DTyCtr (ty_ctr_of_string "Coq.Init.Logic.eq", [DHole; DTyVar u1; DTyVar u2])), true)
 
 let rec arrows_to_products typ =
@@ -1428,6 +1431,13 @@ and best_inductive_schedule_from_instance (ind_instance : rocq_type) (output_var
 *)
 let all_theorem_schedules (thm : rocq_type) : (schedule * rule_density * int) list =
   let schedule_matches = NewUnifyQC.type_to_schedules thm None None [] [] D_Thm true in
+  (* Converts the matches [ms] to the [S_Match] schedule_step (right now they're not prepended but we can prepend them)
+     Converts the equalities [eqs] to a scheudle_step via [check_eq] and prepends them to the list of schedule_steps
+     
+     + the reason matches aren't prepended is because [ms] are for the conclusion, so they're the same for every schedule, 
+       so we don't need to waste time reasoning about them when comparing schedules 
+      + Segev's recommendation: prepend both checks and matches
+  *)
   let schedules = List.mapi (fun i ((steps, sort), ms, eqs) -> i,List.map (fun (v,p) -> S_Match (v,p)) ms, ((List.map check_eq eqs @ steps), sort)) schedule_matches in
   let schedule_densities = List.map (fun (i,ms_steps,schd) -> i, schedule_density ms_steps schd) schedules in
   let valid_schedules = List.filter (fun (i,schd) -> are_schedule_steps_valid i schd) schedule_densities in
@@ -1765,7 +1775,12 @@ let rec take_while (p : 'a -> bool) (l : 'a list) : ('a list) * ('a list) =
   | _ -> ([], l)
 
 (* Use Tarjan's algorithm to create a topological sort of the graph of dependencies for all inductives used in a schedule 
-   - note: I will also need this somehow  (talk to Segev in a follow-up meeting)
+   (e.g. for STLC, `lookup` depends on `bind`, and `bind` depends on generators for lists)
+
+   - In lean, we would need to implement this with a State monad
+
+   - To get away with not implementing this, print the things of all things that need to be derived
+    and tell the user to figure out the dependency order themselves
 *)
 let tarjan_schedules_by_name (schedules : string list) inductive_dependency_map
     : (inductive_schedule * derive_sort * bool) list list =
@@ -2040,6 +2055,8 @@ let quickchick_it size idx =
         let ind_schd_name = "theorem" in
 
         Error.msg_debug (str ("Components: " ^ string_of_int (List.length components)) ++ fnl ());
+        
+        (* Converts connected components fo schedules to [mexp]s *)
         let schedules_pieces = inductive_schedules_to_def_constr_exprs components ind_schd_name in
 
         Feedback.msg_notice (str "Pieces: " ++ fnl ());

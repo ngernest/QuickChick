@@ -56,7 +56,9 @@ let foldM f b l = List.fold_left (fun accm x ->
                                   accm >>= fun acc ->
                                   f acc x
                     ) b l
- 
+
+(* Note: [sequenceM] is equivalent to [mapM] in Haskell / Lean, 
+   where the monad [m] is specialized to the option monad *)
 let sequenceM f l = 
   (foldM (fun acc x -> f x >>= fun x' -> Some (x' :: acc)) (Some []) l) >>= fun l -> Some (List.rev l)
 
@@ -640,6 +642,7 @@ type derive_sort = D_Gen | D_Enum | D_Check | D_Thm
 (* TODO: Weights? *)
 (* Deep AST of Language that derivations target *)
 (* Continuation of mexp is always going to be of a particular monad sort.*)
+(* Note: just sticking with a deep-embedding (i.e. keeping this as-is) is fine, per discussions w/ Segev & Leo *)
 type mexp =
   | MBind of monad_sort * mexp * var list * mexp
     (* bind m1 (fun id => m2) *)
@@ -647,17 +650,17 @@ type mexp =
     (* ret m *)
   | MFail      (* Signifies failure *) 
   | MOutOfFuel (* Signifies failure due to fuel *)
-  | MId of var
+  | MId of var (* Variables *)
   | MApp of mexp * mexp list
   | MCtr of constructor * mexp list
   | MTyCtr of ty_ctr * mexp list
-  | MConst of string
-  | MEscape of Constrexpr.constr_expr
-  | MMatch of mexp * (pat * mexp) list 
-  | MHole 
-  | MLet of var * mexp * mexp 
+  | MConst of string (* Refers to the name of a Rocq term that we want to reference *)
+  | MEscape of Constrexpr.constr_expr (* Refers to a concrete Rocq term which we embed *)
+  | MMatch of mexp * (pat * mexp) list (* a pattern match *)
+  | MHole (* a hole, we allow the Rocq elaborator to fill them out so we don't have to write down explicit type arguments *) 
+  | MLet of var * mexp * mexp (* We don't need [MLet] for our current purposes *)
   | MBacktrack of mexp * mexp list * bool * derive_sort
-  | MFun of (pat * mexp option) list * mexp 
+  | MFun of (pat * mexp option) list * mexp  (* Gives us a function *)
   | MFix of var * (var * mexp) list * mexp * derive_sort
   | MMutFix of (var * (var * mexp) list * mexp * derive_sort) list * var 
   | MArrow of mexp * mexp
@@ -967,7 +970,9 @@ let c_backtrack (ds : derive_sort) (is_constrained : bool) (first : constr_expr)
   | D_Check, _ -> c_app (cInject "QuickChick.Decidability.checker_backtrack") [c_list c_hole @@ ms] (* ms : list (unit -> option A)*)
   | D_Thm, _ -> failwith "Backtrack not supported for theorems."
 
-(* Compiles a [mexp] to a Rocq expression *)
+(* Compiles a [mexp] to a Rocq expression 
+   - This is the function that figures out how to interpret [mexp] as Rocq code
+*)
 let rec mexp_to_constr_expr (me : mexp) (ds : derive_sort) : constr_expr =
   match me with
   | MBind (ms, m, vs, k) -> c_bind ms ds (mexp_to_constr_expr m ds) vs (mexp_to_constr_expr k ds)
@@ -1070,6 +1075,13 @@ let def_call fuel r args =
 
 let m_negb_opt x = MApp (MConst "QuickChick.Decidability.negbOpt", [x])
 
+(* Compiles a [schedule_step] to an [mexp] 
+   - [k] is the remainder of the [mexp]  (it's what happens in the rest of the [MBind])
+    + we're building up the [mexp] incrementally 
+   - think of this as a difference list 
+   - Each [schedule_step] compiles to an [MBind]
+    + So we need something to put in the body of a bind (the function passed to [>>=])
+*)
 let schedule_step_to_mexp (step : schedule_step) mfuel (def_fuel : mexp) : mexp -> mexp = fun k ->
   match step with
   | S_UC (v, prod, ps) -> 
@@ -1135,16 +1147,24 @@ let m_theorem_check_fuel mfuel =
   (* aux steps finally    *)
 
 (* Rewrite the above schedule_to_mexp as a fold*)
-(* This is the function which compiels schedule steps to `mexp` (monadic expression) *)
+(* This is the function which compiels schedule steps to [mexp] (monadic expression)
+  - takes a list of schedule steps & a schedule_sort 
+    (the sort is how we interpret the conclusion of the function we're deriving)
+    + we can view the [schedule_sort] as the conclusion of the function 
+    
+*)
 let schedule_to_mexp ((steps, s_sort) : schedule) (mfuel : mexp) (def_fuel : mexp) : mexp =
   let finally = match s_sort with
     | ProducerSchedule (is_constrained, ps, concl_outputs) -> MRet ((if is_constrained then m_Some MHole else (fun x -> x)) @@ product_free_rocq_type_to_mexp concl_outputs)
-    | CheckerSchedule -> MRet (m_Some m_bool m_true)
+    | CheckerSchedule -> MRet (m_Some m_bool m_true) 
     | TheoremSchedule (DNot concl, true) -> match_optbool (m_negb_opt @@ m_decOpt (product_free_rocq_type_to_mexp concl) (m_theorem_check_fuel m_fuel)) (MRet (m_Some m_bool m_true)) (MRet (m_Some m_bool m_false)) MOutOfFuel
     | TheoremSchedule (DNot concl, false) -> match_optbool (m_negb_opt @@ product_free_rocq_type_to_mexp concl) (MRet (m_Some m_bool m_true)) (MRet (m_Some m_bool m_false)) MOutOfFuel
     | TheoremSchedule (concl, true) -> match_optbool (m_decOpt (product_free_rocq_type_to_mexp concl) m_fuel) (MRet (m_Some m_bool m_true)) (MRet (m_Some m_bool m_false)) MOutOfFuel
     | TheoremSchedule (concl, false) -> match_optbool (product_free_rocq_type_to_mexp concl) (MRet (m_Some m_bool m_true)) (MRet (m_Some m_bool m_false)) MOutOfFuel
   in
+  (* folds over the steps, converts each of them to a functional [mexp] representation, 
+     then composes them via the [fold] 
+     - its a fold-right because we want [finally] (the conclusion) to be the base-case of the fold *)
   List.fold_right (fun schd acc -> schedule_step_to_mexp schd mfuel def_fuel acc) steps finally
 
 
@@ -1183,7 +1203,16 @@ type var_set = VS.t
 type pat_map = pat VM.t
 
 type inductive_schedule = string * (var * mexp) list * (var * mexp list) list * (schedule * (var * pat) list) list * (schedule * (var * pat) list) list 
-  (*Name string, fixed input variable/type list, type variable/required typeclasses, list of base schedules, and a list non base schedules paired with how they match on those variables*)
+  (* Name of the generator/checker as a string, 
+     list of inputs & their types,
+     list of type variables and their associated typeclasses (each type variable is associated with either 0 or 2 typeclasses, namely DecEq and Arbitrary),
+     list of base schedules 
+      (a schedule for a sub-generator + the pattern matches that need to occur before the schedule for the sub-generator 
+      - we line up variables associated with the inductive (args to aux_arb) with the conclusion fo the constructor 
+      - this is why earlier on, we didn't prepend pattern matches), 
+     and a list non-base (i.e. recursive) schedules paired with how they match on those variables
+       (a list of recursive schedules, which are ones that refer the top-level inductive)
+       (this doesn't handle mutually recursive) *)
 
 type mutual_inductive_chain = inductive_schedule list list
 
@@ -1417,11 +1446,16 @@ let inductive_schedules_to_def_mexps (components : (inductive_schedule * derive_
     match comp with
     | [(is, ds, is_constrained)] -> 
       let name = match is with (n,_,_,_,_) -> n in
+      (* handles the non-mutually recurisve case 
+         - recommendation: look at [inductive_schedule_to_mexp] 
+      *)
       let body = inductive_schedule_to_mexp is ds is_constrained in
       [var_of_string name, body, ds]
     | _ -> 
       let names = List.map (fun (is,_,_) -> match is with (n,_,_,_,_) -> n) comp in
       let comp = List.map (fun (is, ds, is_constrained) -> turn_def_calls_into_mutrec_calls is names, ds, is_constrained) comp in
+      (* Note that we call [inductive_schedule_with_dependencies_to_mexp] to handle mutually recursive 
+         functions/definitions *)
       let mut_body = inductive_schedule_with_dependencies_to_mexp [] comp "placeholder" in 
       let update_name n = function 
         | MLet (name, MMutFix (funs, _), ds) -> MLet (name, MMutFix (funs, var_of_string n), ds)

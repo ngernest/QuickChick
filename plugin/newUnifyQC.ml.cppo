@@ -474,7 +474,7 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
       | _, _ -> failwith "Conclusion is not a TyCtr"
   in
 
-  let rec is_range_fixed umap = function
+  let rec is_range_fixed (umap : umap) : range -> = function
     | FixedInput -> true
     | Undef _ -> false
     | Unknown u -> 
@@ -488,7 +488,7 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
   (* figure out what the output indices are so we can come up w/ a list of schedules *)
   let output_indices = filter_mapi (fun i (v,_) -> if List.mem v output_vars then Some i else None) result_vars in
 
-  let is_fixed umap v = is_range_fixed umap (Unknown v) in
+  let is_fixed (umap : umap) (v : unknown) : bool = is_range_fixed umap (Unknown v) in
 
   let rec take n lst = 
     match lst with
