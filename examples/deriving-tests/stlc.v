@@ -77,7 +77,13 @@ Fixpoint typeOf G e : option type :=
   end.
 
 (* Generate terms of a specific type in an env. *)
-Derive ArbitrarySizedSuchThat for (fun e => typing G e t).
+(* Derive ArbitrarySizedSuchThat for (fun e => typing G e t). *)
+
+Derive ArbitrarySizedSuchThat for (fun t => typing G e t).
+Print GenSizedSuchThattyping.
+
+Derive Inductive Schedule typing 2 derive "Gen" opt "true".  
+
 Derive EnumSizedSuchThat for (fun t => typing G e t).
 
 (* Check whether a variable has a given type in an env. *)

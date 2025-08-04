@@ -1202,17 +1202,21 @@ type var_set = VS.t
 (* Maps input variables to patterns *)
 type pat_map = pat VM.t
 
-type inductive_schedule = string * (var * mexp) list * (var * mexp list) list * (schedule * (var * pat) list) list * (schedule * (var * pat) list) list 
-  (* Name of the generator/checker as a string, 
-     list of inputs & their types,
-     list of type variables and their associated typeclasses (each type variable is associated with either 0 or 2 typeclasses, namely DecEq and Arbitrary),
-     list of base schedules 
+(** An [inductive_schedule] contains several things (TLDR essentially one schedule for each constructor, and it differentiates between 
+  non-recursive ones and recursive ones, plus it has a list of top-level variables it cares about + the top-level typeclasses it depends on): 
+     1. Name of the generator/checker as a string, 
+     2. list of inputs & their types,
+     3. list of pairs of type variables and their associated typeclasses, expressed as [mexp]s ([MApp]s)
+       (each type variable is associated with either 0 or 2 typeclasses, namely DecEq and Arbitrary),
+     4. list of base schedules 
       (a schedule for a sub-generator + the pattern matches that need to occur before the schedule for the sub-generator 
       - we line up variables associated with the inductive (args to aux_arb) with the conclusion fo the constructor 
       - this is why earlier on, we didn't prepend pattern matches), 
-     and a list non-base (i.e. recursive) schedules paired with how they match on those variables
+     5. a list non-base (i.e. recursive) schedules paired with how they match on those variables
        (a list of recursive schedules, which are ones that refer the top-level inductive)
        (this doesn't handle mutually recursive) *)
+type inductive_schedule = string * (var * mexp) list * (var * mexp list) list * (schedule * (var * pat) list) list * (schedule * (var * pat) list) list 
+  
 
 type mutual_inductive_chain = inductive_schedule list list
 

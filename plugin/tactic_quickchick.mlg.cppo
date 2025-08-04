@@ -542,12 +542,31 @@ let input_pattern_of_rocq_ctr (ctr : rocq_ctr) (ois : output_index list) : const
 let input_patterns_of_rocq_relation ((ind_name, params, rules, overall_type) : rocq_relation) (ois : output_index list) : (constructor * pattern) list =
   List.map (fun ctr -> input_pattern_of_rocq_ctr ctr ois) rules
 
-(* Type of search trees (corresponds to Pattern Tries in the POPL submission) *)
+(** Type of pattern tries (POPL submission) 
+   - A pattern trie maps patterns to constructors that cover that pattern 
+   - generalization of tries, which map prefixes of strings to values 
+   
+   - A simplified version: "the density of an inductive is the worst/best density among any of tis constructors"
+     + ^^ try both and see which works better 
+  - [pattern_coverage_tree] gives us a more nuanced analysis *)
 type pattern_coverage_tree =
+   (* - A [PatternLeaf] is the leaf of a trie (we can split a [PatternLeaf] to expand the trie if we want to)
+      + ^^ we do this if we find the closest matching pattern leaf, and split on it if its a more specific pattern
+   the pattern describes the least granular space needed to describe coverage at this point, 
+      and the list of rules which provide coverage to it, if any. 
+      - an example of what "least granular" means: 
+        + "what patterns do I need to cover the function f(x) := x?" (what constructors work as inputs?)
+        + for this example, we just need the identifier pattern (aka the wildcard pattern), i.e. any constructor works as input 
+        + however if we had [f(0) := 2] instead, then to run this function, we need to pattern-match one level deep 
+          * we also need to cover the case for [S n]
+            * ^^ this is least granular, since we can also split this into [S O] and [S (S n)] by pattern-matching on [n]
+            * "least granular" means we want to split our variables the least amount of times to get the pattern we care about
+              (i.e. we want to do the fewest layers of pattern-matches to describe the set of patterns we have) *)
   | PatternLeaf of pattern * constructor list 
-    (* the pattern describes the least granular space needed to describe coverage at this point, and the list of rules which provide coverage to it, if any. *)
+  (* A [PatternNode] is a [PatternLeaf] that has a pattern-match performed on one of its variable patterns
+    + The int list represents the path to the current wildcard thats being split *)
   | PatternNode of pattern * constructor list * int list * (constructor * pattern_coverage_tree) list 
-    (* The int list represents the path to the current wildcard thats being split *)
+    
 
 let print_decomposed_pattern (dec : (constructor * int * int list) list) : unit =
   msg_debug (str "Printing Decomposed Pattern" ++ fnl ());
@@ -732,13 +751,16 @@ let rule_of_rocq_ctr ind_name (ctr : rocq_ctr) : rule =
 let rocq_relation_rules ((ind_name, params, rules, overall_type) : rocq_relation) : rule list =
   List.map (rule_of_rocq_ctr ind_name) rules
 
+(* same as [density] in the paper
+  - [Checking is the worst], [Total] is the best *)  
 type rule_density = 
-  | Checking
+  | Checking 
   | Backtracking
-  | Neutral
+  | Neutral             (* ignore [Neutral] for now *)
   | Partial
   | Total
 
+(* [pattern_coverage_tree] corresponds to "Pattern Tries" in the paper *)
 let rec collect_leaves (tree : pattern_coverage_tree) : (pattern * constructor list) list =
   match tree with
   | PatternLeaf (p, cs) -> [(p,cs)]
@@ -853,7 +875,9 @@ let density_memo : rule_density RelationInstMap.t ref = ref RelationInstMap.empt
 
 let density_inductive_memo : (inductive_schedule * rule_density) RelationInstMap.t ref = ref RelationInstMap.empty
 
-(*Three heuristics detecting difficult to generate rules*)
+(* Four heuristics detecting difficult to generate rules *)
+
+(* is the output constrained in a hypothesis? *)
 let rec is_output_constrained_in_hypothesis ((ind_name, ctr_name, arity, hyps, conc) : rule) (ois : output_index list) : bool =
   let recursive_hyps = List.filter (fun (ind, args) -> ind = ind_name) hyps in
   let output_index_hyps = List.concat_map (fun (ind, args) -> fst (split_indices args ois)) recursive_hyps in
@@ -862,6 +886,7 @@ let rec is_output_constrained_in_hypothesis ((ind_name, ctr_name, arity, hyps, c
     | Unconstrained _ -> false) output_index_hyps
     then (Feedback.msg_notice (str (constructor_to_string ctr_name ^ ": output constrained in hypothesis") ++ fnl ()); true) else false
 
+(* Does the output require unification? *)    
 and is_output_hyps_require_unification ((ind_name, ctr_name, arity, hyps, conc) : rule) (ois : output_index list) : bool =
   let recursive_hyps = List.filter (fun (ind, args) -> ind = ind_name) hyps in
   let collect_vars = function
@@ -871,6 +896,7 @@ and is_output_hyps_require_unification ((ind_name, ctr_name, arity, hyps, conc) 
   Feedback.msg_notice (str (String.concat ", " (List.map string_of_int ois)) ++ fnl ());
   if not_pairwise_disjoint output_index_hyps then (Feedback.msg_notice (str (constructor_to_string ctr_name ^ ": output hyps require unification") ++ fnl ()); true) else false
 
+(* are the input positions in the conclusion of the constructor requiring unification? *)
 and is_input_conclusion_require_unification ((ind_name, ctr_name, arity, hyps, conc) : rule) (ois : output_index list) : bool =
   let conclusion_args = snd conc in
   let (_,input_conc_args) = split_indices conclusion_args ois in
@@ -880,6 +906,7 @@ and is_input_conclusion_require_unification ((ind_name, ctr_name, arity, hyps, c
   let all_input_conc_vars = List.concat_map collect_vars input_conc_args in
   if has_duplicates all_input_conc_vars then (Feedback.msg_notice (str (constructor_to_string ctr_name ^ ": input conc requires unification") ++ fnl ()); true) else false
 
+(* Are functions constraining conclusion inputs or hypothesis outputs *)  
 and are_functions_constraining_conclusion_inputs_or_hyp_outputs ((ind_name, ctr_name, arity, hyps, conc) : rule) (ois : output_index list) : bool =
   let conclusion_args = snd conc in
   let (_,input_conc_args) = split_indices conclusion_args ois in
@@ -1175,30 +1202,60 @@ let rec take n l =
   | [] -> []
   | x :: xs -> x :: take (n - 1) xs
 
+(** Annotates every a step of a schedule with its density *)  
 let rec schedule_density neutral_prelude_steps schedule : schedule_with_density =
-  let step_density (step : schedule_step) ds : rule_density =
+  (* Annotates one single [schedule_step] with its density *)
+  let step_density (step : schedule_step) (ds : derive_sort) : rule_density =
     match step with
     | S_UC (v, SrcNonrec (DTyParam param), ps) ->
-      Total (* If we have a type parameter we want to generate for, we can't know its density since it is abstracted, hence Neutral. *) 
+      (* e.g. generating [a] when generating [List a] -- all unconstrained generators are total *)
+      Total 
     | S_UC (v,SrcNonrec ty,ps) ->
+      (* Unconstrained generation for non-recursive, i.e. [Arbitrary] instance for [Nat] *)
+      (* We need to ask for the best inductive schedule for generating Nats, which we register in a map as a side effect *)
       (ignore (best_inductive_schedule_from_instance ty [] (producer_sort_to_derive_sort ps) false);
       Total) (* For enumerations during a checker should unconstrained be empty? *)
-    | S_UC (_,SrcRec _,_) -> Total
+    | S_UC (_,SrcRec _,_) -> 
+      (* Unconstrained generation only has one mode, so any recursive calls are [Total] *)
+      Total
     | S_Check (SrcNonrec ty,pol) ->
+      (* if the polarity [pol] is true, then its [Checking], otherwise its [Partial] -- this is a heuristic 
+         (negation occurs e.g. when we do substitution and we need to check for non-equality
+          - the chance that 2 independently randomly generated things are not equal is high, so its [Partial]) *)
+      (* Note that we ask for the best schedule for a {i checker} for the type [ty] being checked *)
       (ignore (best_inductive_schedule_from_instance ty [] D_Check true);
       if pol then Checking else Partial)
-    | S_Check (SrcRec _, pol) -> if pol then Checking else Partial
-    | S_ST (_, SrcRec _, _) -> (match ds with D_Gen | D_Thm -> Total | D_Check | D_Enum -> Checking) 
+    | S_Check (SrcRec _, pol) -> 
+      (* If the check is recursive, we don't need to make the call to deriving mechanism for the checker *)
+      if pol then Checking else Partial
+    | S_ST (_, SrcRec _, _) -> 
+      (* For recursive calls during constrained enumeration, we just analyze the [derive_sort] *)
+      (match ds with 
+      (* for an inductive, we can't know its density until we know the density of the overall inductive 
+         - for simplicity, we'll just give the most optimistic density for now  
+         - we hypothesize that if there is something bad with a schedule, it will not manifest itself in the recursive call *)
+       | D_Gen | D_Thm -> Total 
+      (* for enumerators & checkers, we want to fail fast, so we prefer having checkers & having smaller enumerations when possible, 
+         so we give them a [Checking] density (i.e. more checks), which is better for the purpose of enumerators/checkers *)
+       | D_Check | D_Enum -> Checking) 
     | S_ST (output_var_tys, SrcNonrec (DTyCtr (ind,args)), ps) -> 
+      (* Constrained producer, [ind] is the inductive you care about and [args] is its arguments *)
+      (* extract the variables from [output_var_tys] *)
       let output_vars = List.map fst output_var_tys in
+      (* keep only the output indices from [args] *)
       let rec is_output i = (function
         | DTyVar j -> List.mem j output_vars
         | DCtr (_, args) -> List.exists (is_output i) args
         | _ -> false) in
       let output_indices = filter_mapi (fun i arg -> if is_output i arg then Some i else None) args in
+      (* Find the best valid schedule for the given inductive with the given list of output indices (the mode)
+         & the given [producer_sort]
+         - the [true] at the end means its constrained *)
       snd (inductive_best_valid_schedule (ty_ctr_to_rocq_relation ind) output_indices (producer_sort_to_derive_sort ps) true)
     | S_ST (_, SrcNonrec _, _) -> failwith "is_schedule_valid: Nonrecursive source should have DTyCtr at toplevel" 
-    | S_Match _ -> Backtracking
+    | S_Match _ -> 
+      (* [Match] steps are [Backtracking] by definition *)
+      Backtracking
     | S_ST (_, SrcMutrec _, _)
     | S_UC (_,SrcMutrec _, _)
     | S_Check (SrcMutrec _, _) -> failwith "is_schedule_valid: Mutually recursive source should not be used at density calculation time, but inserted later."
@@ -1210,8 +1267,11 @@ let rec schedule_density neutral_prelude_steps schedule : schedule_with_density 
 
   let (steps, sort) = schedule in
 
+  (* Figure out the appropriate [derive_sort] *)
   let ds = match sort with
     | TheoremSchedule (concl,true) -> 
+      (* a theorem schedule says that we have to do a check at the end, 
+         so we have to derive the schedule for the checker *)
       ignore (best_inductive_schedule_from_instance concl [] D_Check true);
       D_Thm
     | TheoremSchedule (concl,false) -> 
@@ -1220,6 +1280,14 @@ let rec schedule_density neutral_prelude_steps schedule : schedule_with_density 
     | ProducerSchedule (_,PS_G,_) -> D_Gen
     | CheckerSchedule -> D_Check in
 
+  (* Pair each [schedule_step] with its associated density, 
+    and prepending any steps that we don't care about their density ([neutral_prelude_steps]) to be the top of the total order 
+    
+    - [neutral_prelude_steps] contains {i only} the pattern-matches from the GGG unifier 
+      + we don't care about the density of this step
+    - For the equality-check steps from the unifier, we do care about their density
+      (since they impact generator performance)
+    *)
   let step_densities = List.map (fun step -> (step, match ds with D_Thm | D_Gen -> Total | D_Check | D_Enum -> Checking)) neutral_prelude_steps @ List.map (fun step -> (step, step_density step ds)) steps in
   (* Check for unifications and heuristics! *)
 
@@ -1269,9 +1337,17 @@ and select_best_schedule (schedules : (int * schedule_with_density) list) (ds : 
 and constructor_best_valid_schedule (ind_name : ty_ctr) (ctr : rocq_ctr) (result_vars : (var * rocq_constr) list) (output_vars : var list) (ds : derive_sort) (opt : bool) : ty_ctr * (int * schedule * rule_density) option =
   fst ctr, select_best_schedule (constructor_valid_schedules ind_name ctr result_vars output_vars ds opt) ds
 
+(* Determines the best schedule for an inductive relation [rel], given some output indices [output_idxs],
+   a [derive_sort] [ds] and whether or not its constrained ([opt]), 
+   returning an [inductive_schedule] plus its [density] *)  
 and inductive_best_valid_schedule (rel : rocq_relation) (output_idxs : int list) (ds : derive_sort) (opt : bool) : inductive_schedule * rule_density =
+  (* Deconstructs the relation to get its name [ind_name], its list of type parameters [params], its constructors and its result type
+     (e.g. for the addition relation (i.e. is [n] is the sum of 2 other [Nat]s?), the [result_typ] is [Nat -> Nat -> Nat -> Prop]) *)
   let (ind_name, params, ctrs, result_typ) = rel in
-  if RelationInstMap.mem (ind_name, output_idxs, ds) !density_inductive_memo then RelationInstMap.find (ind_name, output_idxs, ds) !density_inductive_memo
+  (* Check whether we've received a schedule for this density, mode and derive_sort already 
+     - if yes, just return it *)
+  if RelationInstMap.mem (ind_name, output_idxs, ds) !density_inductive_memo then 
+    RelationInstMap.find (ind_name, output_idxs, ds) !density_inductive_memo
   else begin
   Error.msg_debug (str "Inductive name: " 
   ++ str (ty_ctr_to_string ind_name)
@@ -1285,17 +1361,25 @@ and inductive_best_valid_schedule (rel : rocq_relation) (output_idxs : int list)
 
   let rec get_result_vars = function
   | DProd ((v,t), b) ->
+    (* if we have [forall (v : t), b], we create a fresh name corresponding to [v]
+       and then put that in the list of type variables *)
     let v = make_up_name_str ("v_" ^ var_to_string v) in
     (v,t) :: get_result_vars b
   | DArrow (t1, t2) ->
+    (* for an arrow type, we just make up a fresh name on the spot *)
     let v = make_up_name_str "v" in
     (v,t1) :: get_result_vars t2
   | _ -> [] in
 
   let dtype = (DTyCtr (ty_ctr_of_string "Type", [])) in
 
+  (* Extract the variables from the result 
+     - we want all arguments to the inductive (so we prepend type parameters to the variables) *)
   let result_vars = List.map (fun p -> (p, dtype)) params @ get_result_vars result_typ in
 
+  (* Reconstructs the type 
+    - turns the result type of the inductive into one which only uses [Prod]s, because with [Prod]s, 
+      we have an explicitly associated name with each argument *)
   let rec remake_result vars result = 
   match vars, result with
   | [], _ -> result
@@ -1317,6 +1401,8 @@ and inductive_best_valid_schedule (rel : rocq_relation) (output_idxs : int list)
 
   let schedule_name = Printf.sprintf "%s_%s_%s" (typeclass_name (ds, opt)) (ty_ctr_to_string ind_name) modestring in
 
+  (* We get an initial density, which is the best possible density that could be 
+     before we receive any evidence to the contrary *)
   let init_density = match ds with
     | D_Check | D_Enum -> Checking
     | D_Gen | D_Thm -> if opt then Partial else Total in
@@ -1326,34 +1412,63 @@ and inductive_best_valid_schedule (rel : rocq_relation) (output_idxs : int list)
 
   Error.msg_debug (str "Params are: " ++ str (String.concat ", " (List.map ty_param_to_string params)) ++ fnl ());
 
+  (* Map over the list of type parameters, and assert that each type parameter
+     requires a [GenSized] and a [DecEq] instance *)
   let parameters_classes = List.map (fun p -> p, [mexp_GenSized (MId p); mexp_Dec_Eq (MId p)]) params in
 
   Error.msg_debug (str "Parameters classes are: " ++ str (String.concat ", " (List.map (fun (p,cs) -> ty_param_to_string p ^ ": " ^ String.concat ", " (List.map mexp_to_string cs)) parameters_classes)) ++ fnl ());
 
+  (* We don't want to re-run this analysis every time we have a recursive call, 
+    so we put a dummy instance into our [RelationInstMap], i.e. a fake inductive schedule whose density is [init_density], 
+    but this dummy instance doesn't include any density info or the schedules for its constructors 
+    - Note that the tuple [schedule_name,[],parameters_classes,[],[])] is the empty [inductive_schedule]
+     with no info about the density/schedule for constructors
+     
+     The [RelationInstMap] is just a standard OCaml map where:
+     - The key is a triple of [string * list nat * derive_sort] 
+       + the [string] is the name of the inductive
+       + the [list nat] is the list of output indices, which corresponds to mode)
+     - The value has type [inductive_schedule * rule_density] 
+    
+     - In Lean, we would use a State monad to replicate this since we're updating the map on the fly
+  *)
   density_inductive_memo := RelationInstMap.add (ind_name, output_idxs, ds) ((schedule_name,[],parameters_classes,[],[]), init_density) !density_inductive_memo;
 
+  (* For each constructor, ask for its best valid schedule
+     - if no such schedule exists, we fail since you should always have one schedule for a constructor
+      - otherwise, we just return a list of triples of type [schedule * (ty_ctr * rule_density)], 
+       i.e. we return constructor's schedule, the constructor itself, and the schedule's density *)
   let constructor_schedules_with_density = List.filter_map (fun ctr -> 
     match constructor_best_valid_schedule ind_name ctr result_vars output_vars ds opt with
-    | (ctr_name, None) -> failwith ("Should be at least one partial schedule for all constructors including this one: " ^ constructor_to_string ctr_name)
+    | (ctr_name, None) -> failwith ("Should be at least one schedule for all constructors including this one: " ^ constructor_to_string ctr_name)
     | (ctr_name, Some (i, schd, density)) -> Some (schd,(ctr_name,density))) ctrs in
 
+  (* We call [List.split] to two lists, containing respectively the constructor schedules and 
+    a mapping from constructor names to densities 
+    - this is used to create [Table 1] in the paper *)
   let (constructor_schedules, densities) = List.split constructor_schedules_with_density in
 
+  (* Checks if a constructor is a recurisve or not 
+    (check if we ever use a recursive [source] in any [schedule_step]) *)
   let is_recursive (steps,sort) = 
     List.exists (function | S_UC (_,SrcRec _,_) | S_ST (_,SrcRec _, _) | S_Check (SrcRec _,_) -> true | _ -> false) steps 
   in
 
-  (* let param_typeclass_required (src : source) : (var * mexp) option =
-     *)
-
+  (* partition the schedules into non-recursive and recursive ones *)
   let (nonrecursive, recursive) = List.partition is_recursive constructor_schedules in
 
+  (* turn the result variables into [mexp]s *)
   let result_vars_mexps = filter_mapi (fun i (v,t) -> if List.mem i output_idxs then None else Some (v, NewGenericLib.product_free_rocq_type_to_mexp t)) result_vars in 
 
   Error.msg_debug (str "Result variables and their mexps: " ++ str (String.concat ", " (List.map (fun (v,mexp) -> var_to_string v ^ ": " ^ mexp_to_string mexp) result_vars_mexps)) ++ fnl ());
 
+  (* explicitly construct the [inductive_schedule] by pairing together the 5 components *)
   let inductive_schedule : inductive_schedule =
-    (schedule_name, result_vars_mexps, parameters_classes, List.map (fun c -> (c, [])) recursive, List.map (fun c -> (c, [])) nonrecursive) 
+    (schedule_name, result_vars_mexps, parameters_classes, 
+    (* the 2nd component of the pair is where the matches occur,
+       but we don't need any [matches] here since the pattern-matches occur inside the actual schedule
+       - Segev says we can get rid of the 2nd part of the pair *)
+    List.map (fun c -> (c, [])) recursive, List.map (fun c -> (c, [])) nonrecursive) 
   in
 
   let fold_left1 f acc l =
@@ -1377,8 +1492,31 @@ and inductive_best_valid_schedule (rel : rocq_relation) (output_idxs : int list)
     | D_Check | D_Enum -> sparsest densities
     | D_Gen | D_Thm -> densest densities in
 
+  (* Grab the name of the inductive relation *)
   let inductive = (match get_inductive_name ind_name with | Some i -> i | None -> failwith "final_density: not an inductive type") in
-  let tree = cover_tuple_patterns (input_patterns_of_rocq_relation rel output_idxs) (rocq_relation_arity rel) (types_to_constructor_lookup (seek_rocq_relations inductive)) in
+  (* Construct the pattern trie using 3 functions:
+    - we need [input_patterns_of_rocq_relation], 
+      which collects all the patterns of the input indices in the conclusion of all the constructors
+      (it maps over the list of constructors, finds their conclusions, and filters out all the input indices,
+       converting only the input indices to patterns)
+    - [rocq_relation_arity] figures out the arity of the inductive 
+    - [types_to_constructor_lookup] takes a list of Rocq inductive relations, 
+      and it constructs a mapping from constructors (from those relations) to list of other constructors from those relations
+        (along with the arity of these constructors)
+      + e.g. if we gave the mapping the [Abs] constructor from the [term] type, 
+         it will give me back the list [[(Abs, 2); (Const, 1), (Add, 2), (App, 2), (Id, 1)]], 
+         which are all the other constructors from the [term] type, along w/ their arities
+      + we need this to construct the pattern trie, b/c when we come across a specific pattern 
+        (e.g. if in the [TApp] rule, if we see [App] in the conclusion, and its an input, we need to 
+        add another branch -- we need to have as many branches as there are top-level constructors in the [term] type,
+        one for each constructor)
+
+    - [seek_rocq_relations] takes an inductive and finds all other inductives it depends on, including itself 
+      + ^^ maybe there's a Lean function that can do this for you? 
+      
+  *)
+  let tree = cover_tuple_patterns (input_patterns_of_rocq_relation rel output_idxs) 
+    (rocq_relation_arity rel) (types_to_constructor_lookup (seek_rocq_relations inductive)) in
   let covered_patterns = collect_leaves tree in
   (* if should_print then (Feedback.msg_notice (str ("Rule densities for: " ^ ty_ctr_to_string ind_name ^ " with output indices: " ^ List.fold_left (fun acc oi -> acc ^ " " ^ string_of_int oi) "" ois) ++ fnl ()); *)
   (* print_rule_densities densities); *)
@@ -1438,7 +1576,7 @@ let all_theorem_schedules (thm : rocq_type) : (schedule * rule_density * int) li
        so we don't need to waste time reasoning about them when comparing schedules 
       + Segev's recommendation: prepend both checks and matches
   *)
-  let schedules = List.mapi (fun i ((steps, sort), ms, eqs) -> i,List.map (fun (v,p) -> S_Match (v,p)) ms, ((List.map check_eq eqs @ steps), sort)) schedule_matches in
+  let schedules = List.mapi (fun i ((steps, sort), ms, eqs) -> i, List.map (fun (v,p) -> S_Match (v,p)) ms, ((List.map check_eq eqs @ steps), sort)) schedule_matches in
   let schedule_densities = List.map (fun (i,ms_steps,schd) -> i, schedule_density ms_steps schd) schedules in
   let valid_schedules = List.filter (fun (i,schd) -> are_schedule_steps_valid i schd) schedule_densities in
   List.map (fun ((schd_steps_density, schd_sort), density, num_var_uses, id) -> 
@@ -1777,13 +1915,22 @@ let rec take_while (p : 'a -> bool) (l : 'a list) : ('a list) * ('a list) =
 (* Use Tarjan's algorithm to create a topological sort of the graph of dependencies for all inductives used in a schedule 
    (e.g. for STLC, `lookup` depends on `bind`, and `bind` depends on generators for lists)
 
-   - In lean, we would need to implement this with a State monad
+   - In lean, we would need to implement this with a State monad 
+   - If you were to implement this, copy this as closely as possible
+   - Tarjan gives us a list of {i components}, ordered by the dependencies 
+     (at every point in the list, we have an invariant that nothing depends on stuff
+     that hasn't already been defined previously in the list)
+     + A component is either:
+      * a single [inductive_schedule], along its [derive_sort] and a [bool] indicating whether its constrained
+      * a list of the aforementioned triples, where the [inductive_schedules] are mutually dependent on each other
 
    - To get away with not implementing this, print the things of all things that need to be derived
     and tell the user to figure out the dependency order themselves
+
 *)
 let tarjan_schedules_by_name (schedules : string list) inductive_dependency_map
     : (inductive_schedule * derive_sort * bool) list list =
+  (* the state is [index, stack, in_stack, components, vertex_indices, vertex_lowlinks] *)
   let index = ref 0 in
   let stack = ref [] in
   let components = ref [] in
