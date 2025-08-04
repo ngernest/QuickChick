@@ -474,7 +474,7 @@ let type_to_schedules (typ : rocq_constr) (ind_name : ty_ctr option) (ctr_name :
       | _, _ -> failwith "Conclusion is not a TyCtr"
   in
 
-  let rec is_range_fixed (umap : umap) : range -> = function
+  let rec is_range_fixed (umap : umap) : range -> bool = function
     | FixedInput -> true
     | Undef _ -> false
     | Unknown u -> 
