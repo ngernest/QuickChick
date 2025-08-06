@@ -1,5 +1,15 @@
 From QuickChick Require Import QuickChick.
 Require Import Nat.
+Require Import List.
+Import ListNotations.
+
+Inductive MinEx2 : nat -> list nat -> list nat -> Prop :=
+| ME_empty : MinEx2 O [] []
+| ME_present : forall x l l',
+    MinEx2 x l l' ->
+    MinEx2 (S x) l ([x] ++ l').
+Derive ArbitrarySizedSuchThat for (fun l => MinEx2 x l l').
+Print GenSizedSuchThatMinEx2.    
 
 Inductive square_of_equiv : nat -> nat -> Prop :=
 | sq' : forall n m,
@@ -18,7 +28,10 @@ Proof. reflexivity. Qed.
 Inductive square_of : nat -> nat -> Prop :=
 | sq : forall n, square_of n (n * n).
 
+Derive ArbitrarySizedSuchThat for (fun n => square_of n m).
+Print GenSizedSuchThatsquare_of.
 Derive EnumSizedSuchThat for (fun n => square_of n m).
+
 Derive DecOpt for (square_of n m).
 
 Example sq_1 :
