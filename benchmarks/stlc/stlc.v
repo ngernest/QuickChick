@@ -17,6 +17,8 @@ Proof. dec_eq. Defined.
 
 (* Terms *)
 
+
+
 Definition var := nat.
 
 Inductive term : Type :=

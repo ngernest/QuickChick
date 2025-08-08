@@ -9,7 +9,7 @@ Inductive MinEx2 : nat -> list nat -> list nat -> Prop :=
     MinEx2 x l l' ->
     MinEx2 (S x) l ([x] ++ l').
 Derive ArbitrarySizedSuchThat for (fun l => MinEx2 x l l').
-Print GenSizedSuchThatMinEx2.    
+
 
 Inductive square_of_equiv : nat -> nat -> Prop :=
 | sq' : forall n m,
