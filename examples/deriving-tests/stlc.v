@@ -39,6 +39,8 @@ Derive EnumSizedSuchThat for (fun t => bind G x t).
 (* Check whether a variable has a given type in an env. *)
 Derive DecOpt for (bind G e t).
 
+
+
 (* Typing *)
 
 Inductive typing (G : env) : term -> type -> Prop :=
@@ -82,9 +84,8 @@ Fixpoint typeOf G e : option type :=
 Derive ArbitrarySizedSuchThat for (fun t => typing G e t).
 Print GenSizedSuchThattyping.
 
-Derive Inductive Schedule typing 2 derive "Gen" opt "true".  
-
 Derive EnumSizedSuchThat for (fun t => typing G e t).
+Print EnumSizedSuchThattyping.
 
 (* Check whether a variable has a given type in an env. *)
 Derive DecOpt for (typing G e t).

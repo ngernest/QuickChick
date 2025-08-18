@@ -20,8 +20,10 @@ Derive DecOpt for (le x y).
 
 Derive ArbitrarySizedSuchThat for (fun x => le y x).
 Derive ArbitrarySizedSuchThat for (fun t => bst lo hi t).
+Print GenSizedSuchThatbst.
 
 Derive DecOpt for (bst lo hi t).
+Print DecOptbst.
 
 Fixpoint is_bst (lo hi : nat) (t : Tree) :=
   match t with
