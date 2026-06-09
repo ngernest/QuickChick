@@ -1,13 +1,16 @@
 From QuickChick Require Import QuickChick.
+From Coq Require Import Derive.
 
-(* TODO: better naming *)
+(* Check that this [Derive] still works *)
+Derive X SuchThat (X = 1) As eqX.
+Abort.
 
 Inductive foo {A : Type} :=
 | bar : A -> foo -> foo
 | baz : foo
 .
 
-Derive (Arbitrary, Show) for foo.
+QCDerive (Arbitrary, Show) for foo.
 Sample (arbitrary : G foo).
 
 Section Sanity.
@@ -53,6 +56,7 @@ Sample d.
 
 Set Warnings "-notation-overridden".
 From mathcomp Require Import ssreflect ssrnat div.
+Set SsrOldRewriteGoalsOrder.  (* change Set to Unset when porting the file, then remove the line when requiring MathComp >= 2.6 *)
 
 QuickChick
    (fun (s : nat) (t : nat) =>

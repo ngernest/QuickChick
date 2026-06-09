@@ -3,6 +3,7 @@ From QuickChick Require Import QuickChick.
 From mathcomp Require Import ssreflect eqtype ssrnat.
 Import QcNotation. Import QcDefaultNotation.
 Import ListNotations.
+Set SsrOldRewriteGoalsOrder.  (* change Set to Unset when porting the file, then remove the line when requiring MathComp >= 2.6 *)
 
 Require Import QuickChick.TacticsUtil ExtLib.Structures.Monads.
 Open Scope monad_scope.
@@ -32,7 +33,7 @@ Inductive not_In : nat -> list nat -> Prop :=
 | In_cons : forall x y l,
     not_In x l -> x <> y -> not_In x (y :: l).
 
-Derive DecOpt for (not_In x l).
+QCDerive DecOpt for (not_In x l).
 
 
 Instance not_In_SizeMonotonic x l : DecOptSizeMonotonic (not_In x l).
@@ -45,7 +46,7 @@ Instance not_In_complete x l : DecOptCompletePos (not_In x l).
 Proof. derive_complete (). Qed.
        
 
-Derive EnumSizedSuchThat for (fun x => eq x n).
+QCDerive EnumSizedSuchThat for (fun x => eq x n).
 
 Instance EnumSizedSuchThateq_SizedMonotonic X {_ : Enum X} (n : X) :
   SizedMonotonicOpt (@enumSizeST _ _ (EnumSizedSuchThateq n)).
@@ -59,7 +60,7 @@ Instance EnumSizedSuchThateq_Correct X `{_ : EnumMonotonicCorrect X} (n : X) :
   CorrectSizedST (fun m => eq n m) (@enumSizeST _ _ (EnumSizedSuchThateq n)).
 Proof. derive_enumST_Correct (). Qed.
 
-Derive EnumSizedSuchThat for (fun n => not_In n l).
+QCDerive EnumSizedSuchThat for (fun n => not_In n l).
 
 Instance EnumSizedSuchThatnot_In_SizedMonotonic l :
   SizedMonotonicOpt (@enumSizeST _ _ (EnumSizedSuchThatnot_In l)).

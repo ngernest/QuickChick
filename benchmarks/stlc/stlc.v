@@ -4,6 +4,7 @@ From mathcomp Require Import ssreflect ssrbool eqtype.
 Require Import Arith List String Lia.
 From QuickChick Require Import QuickChick.
 Import ListNotations.
+Set SsrOldRewriteGoalsOrder.  (* change Set to Unset when porting the file, then remove the line when requiring MathComp >= 2.6 *)
 
 (* Types *)
 
@@ -11,7 +12,7 @@ Inductive type : Type :=
 | N : type
 | Arrow : type -> type -> type.
 
-Derive (Arbitrary, Show, EnumSized) for type.
+QCDerive (Arbitrary, Show, EnumSized) for type.
 #[local] Instance dec_type (t1 t2 : type) : Dec (t1 = t2).
 Proof. dec_eq. Defined.
 
@@ -25,7 +26,7 @@ Inductive term : Type :=
 | App : term -> term -> term
 | Abs : type -> term -> term.
 
-Derive Arbitrary for term.
+QCDerive Arbitrary for term.
 
 (* Environments *)
 
@@ -37,11 +38,11 @@ Inductive bind : env -> nat -> type -> Prop :=
     bind G x t -> bind (t' :: G) (S x) t.
 
 (* Generate variables of a specific type in an env. *)
-Derive ArbitrarySizedSuchThat for (fun x => bind G x t).
+QCDerive ArbitrarySizedSuchThat for (fun x => bind G x t).
 (* Get the type of a given variable in an env. *)
-Derive EnumSizedSuchThat for (fun t => bind G x t).
+QCDerive EnumSizedSuchThat for (fun t => bind G x t).
 (* Check whether a variable has a given type in an env. *)
-Derive DecOpt for (bind G e t).
+QCDerive DecOpt for (bind G e t).
 
 (* Typing *)
 
@@ -115,18 +116,18 @@ Fixpoint gen_typed (sz : nat) (Γ : env) (t : type) : G term :=
   end.
 
 (* Generate terms of a specific type in an env. *)
-Derive ArbitrarySizedSuchThat for (fun e => typing G e t).
-Derive EnumSizedSuchThat for (fun t => typing G e t).
+QCDerive ArbitrarySizedSuchThat for (fun e => typing G e t).
+QCDerive EnumSizedSuchThat for (fun t => typing G e t).
 
 (* Check whether a variable has a given type in an env. *)
-Derive DecOpt for (typing G e t).
+QCDerive DecOpt for (typing G e t).
 
 (* Small step CBV semantics *)
 Inductive value : term -> Prop :=
 | VConst : forall n, value (Const n)
 | VAbs   : forall t e, value (Abs t e).
 
-Derive DecOpt for (value e).
+QCDerive DecOpt for (value e).
 
 Definition is_value (e : term) : bool :=
   match e with

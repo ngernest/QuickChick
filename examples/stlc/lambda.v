@@ -3,6 +3,7 @@ Require Import Arith List String Lia.
 Require Import Program Relations Wellfounded Lexicographic_Product.
 From QuickChick Require Import QuickChick.
 From QuickChick.stlc Require Import monad.
+Set SsrOldRewriteGoalsOrder.  (* change Set to Unset when porting the file, then remove the line when requiring MathComp >= 2.6 *)
 
 Import ListNotations.
 
@@ -95,12 +96,12 @@ Inductive typing' (e : env) : term -> type -> Prop :=
       typing' e t2 tau1 ->
       typing' e (App t1 t2) tau2.
 
-Derive Arbitrary for type.
+QCDerive Arbitrary for type.
 #[global]
 Instance dec_type (t1 t2 : type) : Dec (t1 = t2).
 Proof. dec_eq. Defined.
-Derive ArbitrarySizedSuchThat for (fun x => bind env x tau).
-Derive ArbitrarySizedSuchThat for (fun t => typing' env t tau).
+QCDerive ArbitrarySizedSuchThat for (fun x => bind env x tau).
+QCDerive ArbitrarySizedSuchThat for (fun t => typing' env t tau).
 
 Inductive option_le : option nat -> option nat -> Prop :=
     | opt_le_1 : option_le None None

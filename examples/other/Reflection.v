@@ -1,6 +1,7 @@
 From Coq Require Import Init.Nat Lia List.
 From QuickChick Require Import QuickChick CheckerProofs EnumProofs.
 From mathcomp Require Import ssreflect eqtype.
+Set SsrOldRewriteGoalsOrder.  (* change Set to Unset when porting the file, then remove the line when requiring MathComp >= 2.6 *)
 
 Import ListNotations.
 
@@ -11,8 +12,8 @@ Inductive Sorted : list nat -> Prop :=
     x <= y -> Sorted (y :: l) -> Sorted (x :: y :: l).
 
 (* We need to derive a checker for the <= relation as well. *)
-Derive DecOpt for (le x y).
-Derive DecOpt for (Sorted l).
+QCDerive DecOpt for (le x y).
+QCDerive DecOpt for (Sorted l).
 
 Instance DecOptsorted_sound  l : DecOptSoundPos (Sorted l).
 Proof. derive_sound. Qed.

@@ -2,6 +2,7 @@ From QuickChick Require Import QuickChick Tactics.
 Require Import String List. Open Scope string.
 
 From mathcomp Require Import ssreflect ssrfun ssrbool ssrnat eqtype seq.
+Set SsrOldRewriteGoalsOrder.  (* change Set to Unset when porting the file, then remove the line when requiring MathComp >= 2.6 *)
 
 Import Classes QcDefaultNotation ListNotations.
 (* XXX this is required because there is a name clash with
@@ -15,36 +16,36 @@ Inductive Zoo (A : Type) {B : Type}: Type :=
 | Zoo4 : Zoo A.
 
 (** Generators for type  *)
-Derive Arbitrary for Zoo.
+QCDerive Arbitrary for Zoo.
 (* 
 genSZoo is defined
 shrZoo is defined
 *)
 
 (** Size of type *)
-Derive Sized for Zoo.
+QCDerive Sized for Zoo.
 (*
 SizedZoo is defined
 *)
 
 (** Size equations *)
-Derive CanonicalSized for Zoo.
+QCDerive CanonicalSized for Zoo.
 (*
 CanonicalSizedZoo is defined
  *)
 
-Derive SizeMonotonic for Zoo using genSZoo.
+QCDerive SizeMonotonic for Zoo using genSZoo.
 (*
 SizeMonotonicZoo is defined
  *)
 
-Derive SizedMonotonic for Zoo.
+QCDerive SizedMonotonic for Zoo.
 
 (*
 SizedMonotonicZoo is defined
 *)
 
-Derive SizedCorrect for Zoo using genSZoo and SizeMonotonicZoo.
+QCDerive SizedCorrect for Zoo using genSZoo and SizeMonotonicZoo.
 (*
 SizedCorrectZoo is defined
 *)

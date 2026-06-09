@@ -11,6 +11,7 @@ Import ListNotations.
 Import QcDefaultNotation. Open Scope qc_scope.
 Set Warnings "-notation-overridden".
 From mathcomp Require Import ssreflect ssrfun ssrbool ssrnat eqtype seq.
+Set SsrOldRewriteGoalsOrder.  (* change Set to Unset when porting the file, then remove the line when requiring MathComp >= 2.6 *)
 
 Set Bullet Behavior "Strict Subproofs".
 
@@ -22,7 +23,7 @@ Inductive tree A : Type :=
 | Node : A -> tree A -> tree A -> tree A.
 
 
-Derive EnumSized for tree.
+QCDerive EnumSized for tree.
 
 #[local]
 Instance EnumTree_SizedMonotonic A {_ : Enum A} :
@@ -42,7 +43,7 @@ Proof. derive_enum_Correct (). Qed.
 Inductive Foo : Type :=
 | Bar.
 
-Derive EnumSized for Foo.
+QCDerive EnumSized for Foo.
 
 #[local]
 Instance EnumFoo_SizedMonotonic :
@@ -65,7 +66,7 @@ Inductive Foo2 A : Type :=
 | Bar2 : A -> Foo2 A.
 
 
-Derive EnumSized for Foo2.
+QCDerive EnumSized for Foo2.
 
 #[local]
 Instance EnumFoo2_SizedMonotonic A {_ : Enum A} :

@@ -10,6 +10,7 @@ From Ltac2 Require Import Ltac2.
 Import ListNotations.
 Import QcDefaultNotation. Open Scope qc_scope.
 From mathcomp Require Import ssreflect ssrfun ssrbool ssrnat eqtype seq.
+Set SsrOldRewriteGoalsOrder.  (* change Set to Unset when porting the file, then remove the line when requiring MathComp >= 2.6 *)
 
 Set Bullet Behavior "Strict Subproofs".
 
@@ -21,7 +22,7 @@ Inductive tree A : Type :=
 | Node : A -> tree A -> tree A -> tree A.
 
 
-Derive GenSized for tree.
+QCDerive GenSized for tree.
 
 
 Instance GenTree_SizedMonotonic A {_ : Gen A} :
@@ -51,12 +52,12 @@ Inductive bst : nat -> nat -> tree1 -> Prop :=
     bst min max (Node1 n t1 t2).
 
 
-Derive EnumSizedSuchThat for (fun m => le n m).
-Derive ArbitrarySizedSuchThat for (fun m => le n m).
+QCDerive EnumSizedSuchThat for (fun m => le n m).
+QCDerive ArbitrarySizedSuchThat for (fun m => le n m).
 
-Derive DecOpt for (bst min max t).
-Derive EnumSizedSuchThat for (fun t => bst min max t).
-Derive ArbitrarySizedSuchThat for (fun t => bst min max t).
+QCDerive DecOpt for (bst min max t).
+QCDerive EnumSizedSuchThat for (fun t => bst min max t).
+QCDerive ArbitrarySizedSuchThat for (fun t => bst min max t).
 
 Instance GenSizedSuchThatbst_SizedMonotonic min max :
   SizedMonotonicOpt (@arbitrarySizeST _ _ (@GenSizedSuchThatbst min max)).
