@@ -8,7 +8,7 @@ Set Warnings "-notation-overridden,-parsing".
 
 Require Import ZArith List Lia.
 From mathcomp Require Import ssreflect ssrfun ssrbool ssrnat seq eqtype.
-Set SsrOldRewriteGoalsOrder.  (* change Set to Unset when porting the file, then remove the line when requiring MathComp >= 2.6 *)
+Set SsrOldRewriteGoalsOrder.
 
 From ExtLib.Structures Require Export
      Functor Applicative Monads.
